@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>easy-read options</title>
+  <style>
+    :root {
+      --paper: #fbf7ef; --ink: #2b2622; --soft: #6b6259; --line: #e5dccb; --card: #fffdf8;
+      --accent: #9a4f31; --on-accent: #fffdf8; --ok: #3f7d4f; --bad: #a33a2a; --focus: #9a4f31;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper: #1d1f22; --ink: #ece6dc; --soft: #b6ab9c; --line: #3a3d42; --card: #26282c;
+        --accent: #e08a63; --on-accent: #1d1f22; --ok: #7fbf8c; --bad: #ef8a78; --focus: #e08a63; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink);
+      font: 17px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 42rem; margin: 0 auto; padding: 40px 16px 64px; }
+    h1 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 4px; letter-spacing: -0.01em; }
+    .lede { color: var(--soft); margin: 0 0 32px; }
+    fieldset { border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+      padding: 18px 20px 20px; margin: 0 0 20px; display: grid; gap: 16px; }
+    legend { font-weight: 700; padding: 0 6px; }
+    label { display: grid; gap: 6px; font-weight: 600; }
+    .hint { font-weight: 400; color: var(--soft); font-size: 0.9rem; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .choice { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; }
+    .choice input { margin-top: 0.45em; }
+    input[type=text], input[type=password], select, textarea {
+      font: inherit; color: inherit; background: var(--paper); border: 1px solid var(--line);
+      border-radius: 10px; padding: 9px 12px; width: 100%; min-width: 0; }
+    textarea { min-height: 6.5rem; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 0.95rem; }
+    .key { flex: 1; }
+    button { font: inherit; font-weight: 600; color: var(--ink); background: var(--paper);
+      border: 1px solid var(--line); border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    button:hover { filter: brightness(0.97); }
+    :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+    .note { border-left: 4px solid var(--accent); padding: 4px 0 4px 14px; color: var(--soft); margin: 0; }
+    #status { min-height: 1.6em; margin: 0; font-weight: 600; }
+    #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>easy-read: reading aloud</h1>
+  <p class="lede">Voice and subtitles for “Read aloud from here” (right-click), the 🔊 button and Alt+Shift+R.
+    The look of the subtitles comes from your easy-read settings (the “Aa” panel on any page).</p>
+
+  <form id="options" autocomplete="off">
+    <fieldset>
+      <legend>Voice</legend>
+      <label class="choice"><input type="radio" name="engine" value="gemini">
+        <span>Gemini voice: natural, Russian and English. Needs your API key and internet.
+          <span class="hint">The word highlight is estimated from timing; the sentence is exact.</span></span></label>
+      <label class="choice"><input type="radio" name="engine" value="builtin">
+        <span>Built-in voice: free, offline, nothing leaves this computer.
+          <span class="hint">Sounds more robotic. Highlights the exact word when the voice supports it.</span></span></label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Gemini</legend>
+      <label>API key
+        <span class="row"><input class="key" type="password" name="apiKey" spellcheck="false" placeholder="AIza…">
+          <button type="button" id="show-key" aria-pressed="false">Show</button></span>
+        <span class="hint">Stored only in this Chrome profile (never synced). Get one at
+          <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">aistudio.google.com</a>.</span>
+      </label>
+      <label>Model
+        <select name="model">
+          <option value="gemini-3.8-flash-tts">Gemini 3.8 Flash TTS (best quality)</option>
+          <option value="gemini-3.8-flash-lite-tts">Gemini 3.8 Flash-Lite TTS (cheaper)</option>
+        </select>
+      </label>
+      <label>Voice name
+        <input type="text" name="voice" list="voices" spellcheck="false">
+        <datalist id="voices">
+          <option value="Kore"><option value="Puck"><option value="Charon"><option value="Zephyr">
+          <option value="Aoede"><option value="Leda"><option value="Fenrir"><option value="Orus">
+        </datalist>
+      </label>
+      <label>Speaking style
+        <input type="text" name="style" placeholder="calm and clear">
+        <span class="hint">Plain words, for example “calm and clear” or “slow, warm narrator”.</span>
+      </label>
+      <p class="note">With Gemini, the text being read is sent to Google. Use the list below for work sites.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Reading</legend>
+      <label>Speed
+        <span class="row"><input type="range" name="rate" id="rate" min="0" step="1" aria-label="Speed" style="flex:1;accent-color:var(--accent)">
+          <output id="rate-value" for="rate" style="min-width:3.5em;font-variant-numeric:tabular-nums">1×</output></span>
+        <span class="hint">0.75× to 10×. Small steps at slow speeds, bigger ones at fast speeds. Many listeners build up gradually.</span>
+      </label>
+      <label class="choice"><input type="checkbox" name="readCitations">
+        <span>Read citations aloud, such as [1, 2] or (Smith et al., 2020).
+          <span class="hint">Off: they are skipped by the voice and shown small and faded in the subtitles.</span></span></label>
+      <label>Built-in voice only on these sites
+        <textarea name="builtinOnly" spellcheck="false"></textarea>
+        <span class="hint">One domain per line; subdomains count too. Text from these sites never goes to Gemini.</span>
+      </label>
+    </fieldset>
+
+    <div class="row">
+      <button type="button" class="primary" id="test">Test voice</button>
+      <p id="status" role="status"></p>
+    </div>
+  </form>
+  <p class="hint">Shortcuts can be changed at chrome://extensions/shortcuts.</p>
+</main>
+<script type="module" src="options.js"></script>
+</body>
+</html>

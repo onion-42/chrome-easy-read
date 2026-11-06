@@ -14,12 +14,11 @@
   var MATH = "math, .katex, mjx-container, .MathJax";              // raw TeX read aloud is noise
   var CITE_EL = "cite.ltx_cite, sup.reference, a[role=doc-noteref], a[role=doc-biblioref]";
   var WORD = /[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu;                     // same words as text.js timings
-  var LOOKAHEAD = 2, FAST_LOOKAHEAD = 4, FAST_RATE = 1.5;           // sentences the voice may prepare ahead
-  var TURBO_LOOKAHEAD = 6, TURBO_RATE = 3;
+  var LOOKAHEAD = 2, MAX_LOOKAHEAD = 8;                             // sentences the voice may prepare ahead
   var BASE_PX = 22;                                                   // subtitle size before the easy-read scale
   var reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var st = { chunks: [], i: 0, n: 0, active: false, paused: false, errored: false, rate: 1, readCitations: false,
+  var st = { chunks: [], i: 0, n: 0, active: false, paused: false, errored: false, rate: 1, rates: [1], readCitations: false,
     resumeAt: null, startMs: 0, session: Math.random().toString(36).slice(2) };
   var timings = null, mediaMs = 0, lastFrame = 0, raf = 0, wordEvents = false;
   var readingBlock = null, markedWord = null, wordEls = [];
@@ -32,7 +31,8 @@
       "background:var(--er-p);color:var(--er-i);border:1px solid var(--er-b);border-radius:14px;" +
       "box-shadow:0 10px 30px rgba(0,0,0,.22);padding:14px 18px 10px;display:grid;gap:10px}",
     "html.er-scheme #er-reader{background:var(--er-bg);color:var(--er-fg);border-color:var(--er-line)}",
-    "html.er-scheme #er-reader select{background:var(--er-bg);color:var(--er-fg)}",
+    "#er-reader input[type=range]{width:9rem;accent-color:currentColor}",
+    "#er-reader .er-rate{min-width:3em;font-variant-numeric:tabular-nums}",
     "#er-reader .er-cap{line-height:1.5;max-height:40vh;overflow:auto}",
     "#er-reader .er-ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}",
     "#er-reader .er-msg{flex:1;min-width:8rem;color:var(--er-s);font-size:13px}",
@@ -152,11 +152,19 @@
   var cap = el("div", { class: "er-cap" });
   var msgEl = el("span", { class: "er-msg", role: "status" });
   var playBtn = button("⏸", "Pause", togglePause);
-  var rateSel = el("select", { "aria-label": "Speed", title: "Speed" });
+  var rateIn = el("input", { type: "range", min: "0", step: "1", "aria-label": "Speed", title: "Speed" });
+  var rateOut = el("span", { class: "er-rate", "aria-hidden": "true" });
+  function showRate() {
+    var r = st.rates[+rateIn.value];
+    rateOut.textContent = r + "×";
+    rateIn.setAttribute("aria-valuetext", r + "×");
+  }
   function fillRates(rates, current) {
-    rateSel.textContent = "";
-    rates.forEach(function (r) { rateSel.appendChild(el("option", { value: String(r), text: r + "×" })); });
-    rateSel.value = String(current);
+    st.rates = rates;
+    rateIn.max = String(rates.length - 1);
+    var i = rates.indexOf(current);
+    rateIn.value = String(i < 0 ? rates.indexOf(1) : i);
+    showRate();
   }
   var bar = el("div", { id: "er-reader", class: "er-ui", role: "region", "aria-label": "Reading aloud", hidden: "" }, [
     cap,
@@ -164,7 +172,7 @@
       button("⏮", "Previous sentence", function () { if (st.active) play(st.i - 1); }),
       playBtn,
       button("⏭", "Next sentence", function () { if (st.active) play(st.i + 1); }),
-      rateSel, msgEl,
+      rateIn, rateOut, msgEl,
       button("✕", "Stop reading", stop)
     ])
   ]);
@@ -255,8 +263,8 @@
     timings = null; wordEvents = false; mediaMs = at.ms; st.startMs = at.ms;
     if (!from) showChunk(c); // continuing keeps the subtitle and the marked word
     markBlock(c.block); showMsg(""); setPlayButton();
-    var ahead = st.rate > TURBO_RATE ? TURBO_LOOKAHEAD             // fast speech outruns a short prefetch
-      : st.rate > FAST_RATE ? FAST_LOOKAHEAD : LOOKAHEAD;
+    // fast speech outruns a short prefetch: 2 sentences at 1x, 4 at 2x, 6 at 3x, at most 8
+    var ahead = Math.min(MAX_LOOKAHEAD, Math.max(LOOKAHEAD, Math.ceil(st.rate * 2)));
     send({ type: "speak", id: speechId(), text: c.say, startChar: at.char, startMs: at.ms, lang: c.lang, rate: st.rate,
       next: st.chunks.slice(st.i + 1, st.i + 1 + ahead).map(function (x) { return x.say; }) });
   }
@@ -265,8 +273,9 @@
     var from = startPoint(fromContext);
     return chrome.runtime.sendMessage({ type: "reader-options" }).then(function (o) {
       stop();
-      st.rate = o.rate; st.readCitations = o.readCitations;
-      fillRates(o.rates, st.rate);
+      st.readCitations = o.readCitations;
+      fillRates(o.rates, o.rate);
+      st.rate = st.rates[+rateIn.value]; // a stored speed off the slider snaps to 1x
       st.chunks = collect(from);
       bar.hidden = false;
       if (!st.chunks.length) { showMsg("No readable text from here."); return; }
@@ -318,8 +327,9 @@
 
   /* ---------- wiring ---------- */
 
-  rateSel.addEventListener("change", function () {
-    st.rate = parseFloat(rateSel.value);
+  rateIn.addEventListener("input", showRate); // the number follows the thumb while dragging
+  rateIn.addEventListener("change", function () {
+    st.rate = st.rates[+rateIn.value];
     send({ type: "control", cmd: "rate", value: st.rate }); // remembered as the default speed
     if (st.active && !st.paused) play(st.i, currentWord());  // continue from this word at the new speed
   });

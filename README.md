@@ -97,10 +97,11 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
   the rest of the sentence (word-exact); Gemini replays the same audio from the word's estimated start, so it
   can begin a fraction of a second early or late. A built-in voice that reports no words resumes from the
   start of the sentence. Space does nothing special while you type in a field or a button has focus.
-- Speed goes up to 5×. Above 1.5× the Gemini voice prepares 4 sentences ahead, above 3× it prepares 6; if
-  Gemini answers slower than you listen, short gaps between sentences can still appear (more likely at 4–5×,
-  and more requests ahead means the free-tier rate limit comes sooner). Some built-in (OS) voices have their
-  own top speed and may not go all the way to 5×.
+- Speed is a slider from 0.75× to 10× on a log-like scale of round values: small steps at slow speeds
+  (+0.05 up to 1.1×), bigger ones at fast speeds (+1 from 6× to 10×). The Gemini voice prepares about
+  2 sentences ahead per 1× of speed (2 at 1×, 6 at 3×, at most 8); if Gemini answers slower than you listen,
+  short gaps between sentences can still appear. At high speeds every sentence is one Gemini request, so the
+  free-tier rate limit comes sooner. Some built-in (OS) voices have their own top speed and may not reach 10×.
 - Citation filter trade-offs: one-author citations need a comma to be skipped — `(Smith, 2020)` is skipped,
   comma-less `(Smith 2020)` is read, so `(Since 2020)` is never lost. A year in brackets after a capitalised
   word, `Paris (2019)`, is treated like `Smith (2019)` and skipped.

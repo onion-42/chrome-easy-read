@@ -2,8 +2,15 @@
 
 export const READER_KEY = "reader";
 
-/** Speeds offered in the subtitle bar and on the options page. */
-export const RATES = [0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3, 3.5, 4, 4.5, 5];
+/** Speed slider stops (subtitle bar + options page). Log-like: the step grows with the speed. */
+export const RATES = [
+  0.75, 0.8, 0.85, 0.9, 0.95, 1, 1.05, 1.1,  // +0.05
+  1.2, 1.3, 1.4, 1.5, 1.6,                    // +0.1
+  1.8, 2,                                     // +0.2
+  2.25, 2.5, 2.75, 3, 3.25, 3.5,              // +0.25
+  4, 4.5, 5, 5.5, 6,                          // +0.5
+  7, 8, 9, 10,                                // +1
+];
 
 export const READER_DEFAULTS = {
   engine: "gemini",                     // "gemini" | "builtin"

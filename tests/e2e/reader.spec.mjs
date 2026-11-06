@@ -1,4 +1,5 @@
 import { test, expect, toggleSite, badge } from "./fixtures.mjs";
+import { RATES } from "../../extension/reader-options.js";
 
 const PROFILE = { font: "od", lh: 2, bionic: true };
 
@@ -91,14 +92,16 @@ test("controls: resume and speed continue from the word, stop hides the bar and 
   expect(fromAWord((await spoken(sw))[1])).toBe(true);
 
   // a new speed continues from the current word at that speed, for every voice
-  await bar.getByRole("combobox", { name: "Speed" }).selectOption("1.5");
+  const speed = bar.getByRole("slider", { name: "Speed" });
+  await speed.fill(String(RATES.indexOf(1.5)));
   await expect.poll(async () => (await spoken(sw)).at(-1)?.rate).toBe(1.5);
   expect(fromAWord((await spoken(sw)).at(-1))).toBe(true);
 
-  // up to 5x, and the choice is remembered as the default speed
-  await bar.getByRole("combobox", { name: "Speed" }).selectOption("5");
-  await expect.poll(async () => (await spoken(sw)).at(-1)?.rate).toBe(5);
-  await expect.poll(async () => (await sw.evaluate(() => chrome.storage.local.get("reader"))).reader.rate).toBe(5);
+  // up to 10x, the value is shown next to the slider and remembered as the default speed
+  await speed.fill(String(RATES.indexOf(10)));
+  await expect(bar.getByText("10×")).toBeVisible();
+  await expect.poll(async () => (await spoken(sw)).at(-1)?.rate).toBe(10);
+  await expect.poll(async () => (await sw.evaluate(() => chrome.storage.local.get("reader"))).reader.rate).toBe(10);
 
   await bar.getByRole("button", { name: "Pause" }).click();
   await expect(bar.getByRole("button", { name: "Resume" })).toBeVisible();
