@@ -29,16 +29,16 @@ test("storageKey namespaces the hostname", () => {
 });
 
 test("matchesDomain matches the domain and its subdomains only", () => {
-  const domains = ["atlassian.net", "bostongene.com"];
-  assert.equal(matchesDomain("bostongene.atlassian.net", domains), true);
-  assert.equal(matchesDomain("bostongene.com", domains), true);
+  const domains = ["atlassian.net", "example.com"];
+  assert.equal(matchesDomain("acme.atlassian.net", domains), true);
+  assert.equal(matchesDomain("example.com", domains), true);
   assert.equal(matchesDomain("notatlassian.net", domains), false);
   assert.equal(matchesDomain("nature.com", domains), false);
   assert.equal(matchesDomain("nature.com", []), false);
 });
 
 test("parseDomains accepts commas, spaces and new lines, ignores *. and case", () => {
-  assert.deepEqual(parseDomains(" *.BostonGene.com,\natlassian.net  .jira.com\n\n"),
-    ["bostongene.com", "atlassian.net", "jira.com"]);
+  assert.deepEqual(parseDomains(" *.Example.com,\natlassian.net  .jira.com\n\n"),
+    ["example.com", "atlassian.net", "jira.com"]);
   assert.deepEqual(parseDomains(""), []);
 });
