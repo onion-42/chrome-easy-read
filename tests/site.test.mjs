@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { siteKey, storageKey, matchesDomain, parseDomains, looksLikePdfUrl } from "../extension/site.js";
+import { siteKey, storageKey, tabPatterns, LOCAL_FILES, matchesDomain, parseDomains, looksLikePdfUrl } from "../extension/site.js";
 
 test("looksLikePdfUrl spots .pdf paths and arXiv PDF links", () => {
   for (const url of ["https://a.org/paper.pdf", "https://a.org/x/Paper.PDF?download=1", "file:///C:/papers/a.pdf",
@@ -18,10 +18,20 @@ test("siteKey returns the hostname for http and https pages", () => {
 });
 
 test("siteKey returns null for pages an extension cannot change", () => {
-  for (const url of ["chrome://settings", "chrome-extension://abc/options.html", "file:///C:/a.html",
+  for (const url of ["chrome://settings", "chrome-extension://abc/options.html",
     "about:blank", "", undefined, "not a url"]) {
     assert.equal(siteKey(url), null, String(url));
   }
+});
+
+test("siteKey groups every local file under one key", () => {
+  assert.equal(siteKey("file:///C:/Users/me/Downloads/book.html"), LOCAL_FILES);
+  assert.equal(siteKey("file:///home/me/notes.html"), LOCAL_FILES);
+});
+
+test("tabPatterns finds the tabs of a site, or every local file", () => {
+  assert.deepEqual(tabPatterns("example.com"), ["http://example.com/*", "https://example.com/*"]);
+  assert.deepEqual(tabPatterns(LOCAL_FILES), ["file:///*"]);
 });
 
 test("storageKey namespaces the hostname", () => {

@@ -1,5 +1,5 @@
 // Service worker: per-site on/off for easy-read, injection, badge, PDFs, and the voice for immersive reading.
-import { siteKey, storageKey, matchesDomain, parseDomains, looksLikePdfUrl } from "./site.js";
+import { siteKey, storageKey, tabPatterns, LOCAL_FILES, matchesDomain, parseDomains, looksLikePdfUrl } from "./site.js";
 import { loadReaderOptions, saveReaderOptions, RATES } from "./reader-options.js";
 import { prepareHost } from "./host.js";
 import { synthesize } from "./tts/gemini.js";
@@ -93,6 +93,13 @@ async function setBadge(tabId, state) {
   await chrome.action.setTitle({ tabId, title });
 }
 
+/* local files need Chrome's per-extension "Allow access to file URLs" switch; open the page that has it */
+async function askForFileAccess(tabId) {
+  await chrome.action.setBadgeText({ tabId, text: BADGE.unavailable });
+  await chrome.action.setTitle({ tabId, title: "easy-read: turn on \"Allow access to file URLs\" for local pages" });
+  await chrome.tabs.create({ url: `chrome://extensions/?id=${chrome.runtime.id}` });
+}
+
 async function applyToTab(tabId, on) {
   try {
     if (!on) {
@@ -127,7 +134,11 @@ async function toggleSite(tab) {
   const on = !(await isSiteOn(host));
   const key = storageKey(host);
   await (on ? chrome.storage.sync.set({ [key]: true }) : chrome.storage.sync.remove(key));
-  const tabs = await chrome.tabs.query({ url: [`http://${host}/*`, `https://${host}/*`] });
+  if (host === LOCAL_FILES && !(await chrome.extension.isAllowedFileSchemeAccess())) {
+    await askForFileAccess(tab.id);
+    return;
+  }
+  const tabs = await chrome.tabs.query({ url: tabPatterns(host) });
   await Promise.all(tabs.map((t) => applyToTab(t.id, on)));
 }
 

@@ -1,13 +1,22 @@
 // Pure helpers for per-site state. No chrome.* here, so node tests can import it.
 
-/** Hostname of an http(s) page, or null for pages an extension cannot change. */
+/** The one "site" every local file (file:///…) belongs to: one on/off for all saved pages. */
+export const LOCAL_FILES = "file";
+
+/** Hostname of an http(s) page, LOCAL_FILES for a local file, or null for pages an extension cannot change. */
 export function siteKey(url) {
   try {
     const u = new URL(url);
+    if (u.protocol === "file:") return LOCAL_FILES;
     return u.protocol === "http:" || u.protocol === "https:" ? u.hostname : null;
   } catch {
     return null;
   }
+}
+
+/** chrome.tabs.query URL patterns for every tab of a site. */
+export function tabPatterns(host) {
+  return host === LOCAL_FILES ? ["file:///*"] : [`http://${host}/*`, `https://${host}/*`];
 }
 
 /** A URL that most likely opens a PDF: a .pdf path, or an arXiv PDF link (no extension there). */
