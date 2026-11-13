@@ -218,3 +218,34 @@ test("my own PDF: a local file is tied to a paper of the reading list and saved 
   await expect(list.getByRole("link", { name: "Читать" })).toHaveAttribute("href", /viewer\.html\?vault=0_media%2Fpapers%2Fmeylan-2022-tls\.pdf$/);
   await expect(list.getByRole("link", { name: "Zotero" })).toHaveAttribute("href", "zotero://select/library/items/SEEDED01");
 });
+
+test("reading list: attaching a PDF confirms the vault folder inside the click, before the file is chosen", async ({ context, sw }) => {
+  const seeded = { key: "SEEDED02", data: { itemType: "journalArticle", title: "Clonal neoantigens", creators: [{ lastName: "McGranahan" }], date: "2016", extra: "obsidian: 1_education/papers/mcgranahan-2016-clonal.md" } };
+  await fakeZotero(sw, [seeded]);
+  const list = await context.newPage();
+  await list.goto(viewerUrl(sw).replace("viewer.html", "reading.html"));
+  await expect(list.locator("li")).toHaveCount(1);
+  // a vault folder as it is after a Chrome restart: access must be confirmed again, and Chrome allows that
+  // request only while a click is still "fresh" (about 5 seconds; choosing a file in the dialog takes longer)
+  await list.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    let state = "prompt";
+    window.__vaultOverride = {
+      queryPermission: async () => state,
+      requestPermission: async () => {
+        if (window.__clickExpired || !navigator.userActivation.isActive) throw new DOMException("User activation is required to request permissions.", "SecurityError");
+        state = "granted";
+        return state;
+      },
+      getDirectoryHandle: (name, o) => root.getDirectoryHandle(name, o),
+    };
+  });
+
+  const chooser = list.waitForEvent("filechooser");
+  await list.getByRole("button", { name: "Прикрепить PDF…" }).click();
+  const dialog = await chooser;
+  await list.evaluate(() => { window.__clickExpired = true; });
+  await dialog.setFiles(TEST_PDF);
+  await expect(list.locator("#status")).toContainText("PDF привязан: McGranahan 2016");
+  await expect(list.locator("li")).toContainText("PDF ✓ 0_media/papers/mcgranahan-2016-clonal.pdf");
+});

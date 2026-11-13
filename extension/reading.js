@@ -37,7 +37,25 @@ async function sha256(bytes) {
 const readUrl = (p) => (p.pdf ? `${VIEWER}?vault=${encodeURIComponent(p.pdf)}` : p.url);
 const obsidianUrl = (p) => `obsidian://open?${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(p.slug)}`;
 
-/** Put the chosen file into the vault as this paper's PDF (asks before replacing another file). */
+/** Confirm access to the vault folder -> true when a PDF can be written now. Chrome allows the request only
+ * right after a click, so this runs in the button's click, before the file dialog (which outlasts the click). */
+async function vaultReady() {
+  try {
+    const dir = await getVault();
+    if (!dir) {
+      say("PDF не сохранён: папка vault не выбрана (Настройки).", true);
+      return false;
+    }
+    if ((await permission(dir, true)) === "granted") return true;
+    say("PDF не сохранён: нет доступа к папке vault. Нажми кнопку ещё раз и выбери «Разрешить».", true);
+  } catch (e) {
+    say(`Нет доступа к папке vault: ${e.message}`, true);
+  }
+  return false;
+}
+
+/** Put the chosen file into the vault as this paper's PDF (asks before replacing another file).
+ * Access to the folder is confirmed earlier, in the click (vaultReady); here it is only checked. */
 async function attach(paper, file) {
   if (!file || file.type !== "application/pdf") {
     say("Нужен файл PDF.", true);
@@ -49,12 +67,12 @@ async function attach(paper, file) {
   }
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
-    let res = await keepPdf(paper.slug, bytes, { interactive: true });
+    let res = await keepPdf(paper.slug, bytes);
     if (res.existed && confirm(`У статьи «${paper.label}» уже есть PDF в vault. Заменить его этим файлом?`)) {
-      res = await keepPdf(paper.slug, bytes, { interactive: true, replace: true });
+      res = await keepPdf(paper.slug, bytes, { replace: true });
     }
     if (res.reason) {
-      const why = { "no-vault": "папка vault не выбрана (Настройки)", permission: "нет доступа к папке vault", "too-big": "файл больше 95 МБ, GitHub не примет его в vault" };
+      const why = { "no-vault": "папка vault не выбрана (Настройки)", permission: "нет доступа к папке vault: нажми «Прикрепить PDF…» и выбери «Разрешить»", "too-big": "файл больше 95 МБ, GitHub не примет его в vault" };
       say(`PDF не сохранён: ${why[res.reason] || res.reason}.`, true);
       return;
     }
@@ -73,9 +91,12 @@ function row(p) {
   ]);
   if (p.slug) actions.append(el("a", { class: "btn", href: obsidianUrl(p), text: "Obsidian" }));
   const pick = el("button", { type: "button", text: p.pdf ? "Заменить PDF…" : "Прикрепить PDF…" });
-  pick.addEventListener("click", () => {
+  pick.addEventListener("click", async () => {
     attachTo = p;
-    $("file").click();
+    if (!(await vaultReady())) return;
+    // answering Chrome's access question can outlast the click; the file dialog needs a fresh one
+    if (navigator.userActivation.isActive) $("file").click();
+    else say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файл.");
   });
   actions.append(pick);
   const item = el("li", {}, [
