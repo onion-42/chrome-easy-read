@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   markdownToBlocks, buildCleanRequest, cleanPdf, CLEAN_MODEL, MAX_PDF_BYTES,
-  blocksToText, buildCleanTextRequest, cleanText, MAX_CLEAN_CHARS,
+  blocksToText, buildCleanTextRequest, cleanText, MAX_CLEAN_CHARS, splitForClean, CLEAN_PART_CHARS,
 } from "../extension/pdf-clean.js";
 
 test("markdownToBlocks keeps headings, paragraphs, list items and page markers as plain text", () => {
@@ -95,6 +95,30 @@ test("the clean-up request sends the text to the DeepSeek address with the model
   assert.match(body.messages[0].content, /do not summari[sz]e/i);
   assert.match(body.messages[0].content, /Keep every \[\[page N\]\] line/);
   assert.deepEqual(body.messages[1], { role: "user", content: "[[page 1]]\n\nBro- ken text." });
+  assert.equal(body.max_tokens, 8192); // the default answer limit of older DeepSeek models is half of this
+});
+
+test("splitForClean cuts a long text between paragraphs, never inside one", () => {
+  const para = (ch) => ch.repeat(3000);
+  const parts = splitForClean([para("a"), para("b"), para("c"), para("d")].join("\n\n"), 7000);
+  assert.deepEqual(parts, [`${para("a")}\n\n${para("b")}`, `${para("c")}\n\n${para("d")}`]);
+  assert.deepEqual(splitForClean("short", 7000), ["short"]);
+  assert.deepEqual(splitForClean(`${para("a")}${para("b")}${para("c")}\n\ntail`, 7000), [`${para("a")}${para("b")}${para("c")}`, "tail"]);
+});
+
+test("cleanText sends a long paper in parts and joins the answers in the order of the paper", async () => {
+  const paras = ["one", "two", "three", "four", "five", "six"].map((w) => `${w} ${"x".repeat(CLEAN_PART_CHARS / 2)}`);
+  const sent = [];
+  const echo = async (url, init) => {
+    const text = JSON.parse(init.body).messages[1].content;
+    sent.push(text);
+    await new Promise((r) => setTimeout(r, text.startsWith("one") ? 20 : 1)); // the first part answers last
+    return { ok: true, status: 200, json: async () => ({ choices: [{ finish_reason: "stop", message: { content: text.split("\n\n").map((p) => p.split(" ")[0]).join(" ") } }] }) };
+  };
+  const md = await cleanText(paras.join("\n\n"), DS, echo);
+  assert.ok(sent.length >= 3, `sent in ${sent.length} parts`);
+  assert.ok(sent.every((t) => t.length <= CLEAN_PART_CHARS));
+  assert.equal(md.replace(/\s+/g, " "), "one two three four five six");
 });
 
 test("cleanText returns the Markdown of the answer", async () => {

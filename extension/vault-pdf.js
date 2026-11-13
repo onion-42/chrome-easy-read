@@ -25,10 +25,21 @@ export async function getVault() {
   return globalThis.__vaultOverride || (await idb("readonly", (s) => s.get(KEY))) || null;
 }
 
-export async function pickVault() {
-  const dir = await window.showDirectoryPicker({ id: "vault", mode: "readwrite" });
-  await idb("readwrite", (s) => s.put(dir, KEY));
-  return dir;
+/** Ask for a folder. Nothing is remembered here: the caller checks the folder first (isVaultRoot), then keepVault. */
+export const pickVault = () => window.showDirectoryPicker({ id: "vault", mode: "readwrite" });
+export const keepVault = (dir) => idb("readwrite", (s) => s.put(dir, KEY));
+export const forgetVault = () => idb("readwrite", (s) => s.delete(KEY));
+
+/** The root of an Obsidian vault has a .obsidian folder. A subfolder would get the PDFs in the wrong place,
+ * and its name would not open anything in Obsidian. Needs read access to the folder. */
+export async function isVaultRoot(dir) {
+  try {
+    await dir.getDirectoryHandle(".obsidian");
+    return true;
+  } catch (e) {
+    if (e.name === "NotFoundError") return false;
+    throw e;
+  }
 }
 
 // "granted" | "prompt" | "denied"; interactive = true must run inside a click handler.

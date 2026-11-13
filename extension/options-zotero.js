@@ -1,6 +1,6 @@
 // Options page, Zotero section: API key check, collection, the vault folder for PDFs.
 import { client, collectionTree } from "./zotero-api.js";
-import { getVault, pickVault, permission } from "./vault-pdf.js";
+import { getVault, pickVault, keepVault, forgetVault, isVaultRoot, permission } from "./vault-pdf.js";
 
 const KEY = "zotero"; // storage.local: { apiKey, userId, collection, vaultName }
 const DEFAULT_COLLECTION = "Reading list";
@@ -53,7 +53,10 @@ async function check() {
 async function showVault() {
   const dir = await getVault();
   const state = dir ? await permission(dir) : null;
-  $("z-vault-state").textContent = !dir ? "не выбрана" : state === "granted" ? `${dir.name} ✓` : `${dir.name}: доступ нужно подтвердить (нажми кнопку)`;
+  const wrong = state === "granted" && !(await isVaultRoot(dir));
+  $("z-vault-state").textContent = !dir ? "не выбрана"
+    : wrong ? `«${dir.name}» — не корень vault (нажми кнопку и выбери папку, в которой лежит .obsidian)`
+    : state === "granted" ? `${dir.name} ✓` : `${dir.name}: доступ нужно подтвердить (нажми кнопку)`;
 }
 
 $("z-check").addEventListener("click", check);
@@ -65,8 +68,15 @@ $("z-vault").addEventListener("click", async () => {
   try {
     const known = await getVault();
     const dir = known && (await permission(known)) === "prompt" ? known : await pickVault();
-    await permission(dir, true);
-    await save({ vaultName: dir.name });
+    if ((await permission(dir, true)) !== "granted") throw new Error("Нет доступа к папке. Нажми кнопку ещё раз и выбери «Разрешить».");
+    if (await isVaultRoot(dir)) {
+      await keepVault(dir);
+      await save({ vaultName: dir.name });
+      say("");
+    } else {
+      await forgetVault(); // the next click opens the folder dialog again
+      say(`«${dir.name}» — не корень vault: в этой папке нет .obsidian. Нажми кнопку ещё раз и выбери саму папку vault (например obsidian_vault).`, true);
+    }
   } catch (e) {
     if (e.name !== "AbortError") say(e.message, true);
   }

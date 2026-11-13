@@ -139,7 +139,7 @@ async function load() {
     const dir = await getVault();
     const access = dir ? await permission(dir) : null;
     if ($("status").textContent.startsWith("Загружаю")) {
-      say(!groups.length ? "В коллекции пока нет статей." : !dir ? "Папка vault для PDF не выбрана (Настройки)." : access !== "granted" ? "Доступ к папке vault подтвердится при первом открытии или прикреплении PDF." : "");
+      say(!groups.length ? "В коллекции пока нет статей." : !dir ? "Папка vault не выбрана (Настройки)." : access !== "granted" ? "Доступ к папке vault подтвердится при первом открытии или прикреплении PDF." : "");
     }
     render();
   } catch (e) {

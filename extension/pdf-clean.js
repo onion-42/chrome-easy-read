@@ -30,6 +30,11 @@ const TEXT_PROMPT = [
 ].join("\n");
 
 export const MAX_CLEAN_CHARS = 1_500_000; // far above any paper; a bigger text is refused, never cut silently
+// A model's answer has a length limit (8192 tokens at most on older DeepSeek models), and a whole paper does not
+// fit in one answer. The text goes in parts small enough for the limit, in any language.
+export const CLEAN_PART_CHARS = 8000;
+const MAX_ANSWER_TOKENS = 8192;
+const PARTS_AT_ONCE = 4;
 
 export function buildCleanRequest(pdfBase64, apiKey) {
   return interactionRequest({
@@ -62,21 +67,53 @@ export function buildCleanTextRequest(text, { deepseekKey, deepseekUrl, deepseek
     init: {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${deepseekKey}` },
-      body: JSON.stringify({ model: deepseekModel, messages: [{ role: "system", content: TEXT_PROMPT }, { role: "user", content: text }] }),
+      body: JSON.stringify({
+        model: deepseekModel,
+        max_tokens: MAX_ANSWER_TOKENS,
+        messages: [{ role: "system", content: TEXT_PROMPT }, { role: "user", content: text }],
+      }),
     },
   };
 }
 
-/** Text of a PDF -> clean Markdown (DeepSeek). Throws an Error with a message fit for the user. */
-export async function cleanText(text, opts, fetchFn = fetch) {
-  if (!opts.deepseekKey) throw new Error("Add your DeepSeek API key in the extension options.");
-  if (text.length > MAX_CLEAN_CHARS) throw new Error("This PDF has too much text to clean up in one piece.");
+/** Text -> parts of at most `max` characters, cut between paragraphs only (a longer paragraph stays whole). */
+export function splitForClean(text, max = CLEAN_PART_CHARS) {
+  const parts = [];
+  let part = "";
+  for (const para of text.split("\n\n")) {
+    if (part && part.length + 2 + para.length > max) {
+      parts.push(part);
+      part = "";
+    }
+    part = part ? `${part}\n\n${para}` : para;
+  }
+  return part ? [...parts, part] : parts;
+}
+
+async function cleanPart(text, opts, fetchFn) {
   const body = await post("DeepSeek", buildCleanTextRequest(text, opts), fetchFn);
   const choice = body.choices?.[0];
   if (choice?.finish_reason === "length") throw new Error("DeepSeek stopped before the end of the text. The local text is still shown.");
   const md = choice?.message?.content?.trim();
   if (!md) throw new Error("DeepSeek returned no text for this PDF.");
   return md;
+}
+
+/** Text of a PDF -> clean Markdown (DeepSeek, a few parts at a time). Throws an Error with a message fit for the user. */
+export async function cleanText(text, opts, fetchFn = fetch) {
+  if (!opts.deepseekKey) throw new Error("Add your DeepSeek API key in the extension options.");
+  if (text.length > MAX_CLEAN_CHARS) throw new Error("This PDF has too much text to clean up in one piece.");
+  const parts = splitForClean(text);
+  const cleaned = new Array(parts.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < parts.length) {
+      const i = next++;
+      cleaned[i] = await cleanPart(parts[i], opts, fetchFn);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PARTS_AT_ONCE, parts.length) }, worker));
+  return cleaned.join("\n\n");
 }
 
 const INLINE = [[/\[([^\]]*)\]\([^)]*\)/g, "$1"], [/(\*\*|__|\*|_|`)(.+?)\1/g, "$2"]];
