@@ -45,15 +45,15 @@ test("built-in voice: Space pauses on the word and resumes from that word", asyn
   await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
 });
 
-test("Gemini voice: resume continues the same audio from the paused word", async ({ context, sw, server }) => {
+test("local voice: resume continues the same audio from the paused word", async ({ context, sw, server }) => {
   await sw.evaluate(() => {
     self.__spoken = [];
-    self.easyRead.engines.gemini = (msg, tab, send) => {
+    self.easyRead.engines.local = (msg, tab, send) => {
       self.__spoken.push({ text: msg.text, startChar: msg.startChar, startMs: msg.startMs });
       send({ event: "start", durationMs: 12000 });
     };
   });
-  const page = await open(context, sw, server, "gemini");
+  const page = await open(context, sw, server, "local");
   const word = page.locator("#er-reader .er-word");
   await expect(word).toHaveText("and", { timeout: 10_000 }); // the estimated highlight walks through the words
 

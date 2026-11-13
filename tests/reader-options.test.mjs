@@ -25,3 +25,10 @@ test("the local voice defaults point at this computer and one voice per language
   assert.match(READER_DEFAULTS.localVoiceEn, /^en_/);
   assert.match(READER_DEFAULTS.localVoiceRu, /^ru_/);
 });
+
+test("a new install reads with the built-in voice; the Gemini voice and its settings are gone", () => {
+  assert.equal(READER_DEFAULTS.engine, "builtin");
+  for (const key of ["model", "voice", "style"]) assert.equal(key in READER_DEFAULTS, false, `${key} belonged to the Gemini voice`);
+  assert.equal(READER_DEFAULTS.apiKey, ""); // the Gemini key stays: it reads scanned PDFs
+  assert.equal(READER_DEFAULTS.deepseekModel, "deepseek-flash");
+});

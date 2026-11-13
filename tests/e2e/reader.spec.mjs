@@ -3,7 +3,7 @@ import { RATES } from "../../extension/reader-options.js";
 
 const PROFILE = { font: "od", lh: 2, bionic: true };
 
-/* Replace both voices with a fake that records what it was asked to say.
+/* Replace the voices with a fake that records what it was asked to say.
  * autoEnd: report the end after a short "speech", so reading walks through the page. */
 async function fakeVoices(sw, { autoEnd }) {
   await sw.evaluate((auto) => {
@@ -14,7 +14,6 @@ async function fakeVoices(sw, { autoEnd }) {
       if (auto) setTimeout(() => send({ event: "end" }), 150);
     };
     self.easyRead.engines.builtin = fake("builtin");
-    self.easyRead.engines.gemini = fake("gemini");
     self.easyRead.engines.local = fake("local");
   }, autoEnd);
 }
@@ -111,15 +110,11 @@ test("controls: resume and speed continue from the word, stop hides the bar and 
   await expect(page.locator(".er-reading")).toHaveCount(0);
 });
 
-test("work domains always get the built-in voice", async ({ context, sw, server }) => {
-  const { url } = await setup(context, sw, server, { engine: "gemini", builtinOnly: "127.0.0.1" });
+test("a Gemini voice saved by an older version reads with the built-in voice", async ({ context, sw, server }) => {
+  const { url } = await setup(context, sw, server, { engine: "gemini" });
   await fakeVoices(sw, { autoEnd: false });
   await startReading(sw, url);
   await expect.poll(async () => (await spoken(sw))[0]?.engine).toBe("builtin");
-
-  await sw.evaluate(() => chrome.storage.local.set({ reader: { engine: "gemini", builtinOnly: "" } }));
-  await startReading(sw, url);
-  await expect.poll(async () => (await spoken(sw)).at(-1)?.engine).toBe("gemini");
 });
 
 test("the local voice reads everywhere, work domains included: its text stays on this computer", async ({ context, sw, server }) => {

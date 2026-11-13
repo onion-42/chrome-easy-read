@@ -1,4 +1,4 @@
-// Immersive-reading options, kept in chrome.storage.local (the API key never syncs).
+// Immersive-reading options, kept in chrome.storage.local (the API keys never sync).
 
 export const READER_KEY = "reader";
 
@@ -13,21 +13,18 @@ export const RATES = [
 ];
 
 export const READER_DEFAULTS = {
-  engine: "gemini",                     // "gemini" | "local" | "builtin"
+  engine: "builtin",                    // "local" | "builtin"
   localUrl: "http://127.0.0.1:5005",    // the Piper server started by scripts/local-voice.sh
   localVoiceEn: "en_US-lessac-medium",
   localVoiceRu: "ru_RU-irina-medium",
-  apiKey: "",
-  model: "gemini-3.8-flash-tts",
-  voice: "Kore",
-  style: "calm and clear",
+  apiKey: "",                           // Gemini: reads scanned PDFs
   rate: 1,
   readCitations: false,
   claudeKey: "",                        // questions about the paper (notes panel)
   claudeModel: "claude-opus-5-5",
-  deepseekKey: "",                      // translation (notes panel)
+  deepseekKey: "",                      // translation (notes panel) and PDF clean-up
   deepseekUrl: "https://api.deepseek.com",
-  deepseekModel: "deepseek-chat",
+  deepseekModel: "deepseek-flash",
   translateTo: "Russian",
   builtinOnly: "", // domains whose text never leaves this computer (e.g. an employer's wiki)
 };

@@ -1,4 +1,5 @@
 // Print tests/e2e/pages/paper.html to paper.pdf with Chromium: two columns, a running header and page numbers.
+// Also writes scan.pdf: one page that holds a picture and no text, like a scanned paper.
 import { chromium } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 
@@ -15,5 +16,11 @@ await page.pdf({
   footerTemplate: '<div style="font-size:8px;width:100%;text-align:center;"><span class="pageNumber"></span></div>',
   margin: { top: "50px", bottom: "50px", left: "40px", right: "40px" },
 });
-await browser.close();
 console.log(`wrote ${pdf}`);
+
+const scan = fileURLToPath(new URL("../tests/e2e/pages/scan.pdf", import.meta.url));
+const GREY_PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkqAcAAIUAgUW0RjgAAAAASUVORK5CYII=";
+await page.setContent(`<img src="data:image/png;base64,${GREY_PIXEL}" style="width:300px;height:400px">`);
+await page.pdf({ path: scan, format: "A5" });
+console.log(`wrote ${scan}`);
+await browser.close();

@@ -2,7 +2,7 @@
 import { loadReaderOptions, saveReaderOptions, READER_DEFAULTS, RATES } from "./reader-options.js";
 
 const SAVE_DELAY_MS = 300;
-const ENGINES = ["gemini", "local", "builtin"];
+const ENGINES = ["local", "builtin"];
 const form = document.getElementById("options");
 
 const rateOut = document.getElementById("rate-value");
@@ -22,14 +22,11 @@ function say(text, isError = false) {
 }
 
 function fill(o) {
-  form.engine.value = o.engine;
+  form.engine.value = ENGINES.includes(o.engine) ? o.engine : READER_DEFAULTS.engine; // a stored "gemini" voice is gone
   form.localUrl.value = o.localUrl;
   form.localVoiceEn.value = o.localVoiceEn;
   form.localVoiceRu.value = o.localVoiceRu;
   form.apiKey.value = o.apiKey;
-  form.model.value = o.model;
-  form.voice.value = o.voice;
-  form.style.value = o.style;
   form.rate.value = String(RATES.includes(o.rate) ? RATES.indexOf(o.rate) : RATES.indexOf(1));
   showRate();
   form.claudeKey.value = o.claudeKey;
@@ -49,9 +46,6 @@ function read() {
     localVoiceEn: form.localVoiceEn.value.trim() || READER_DEFAULTS.localVoiceEn,
     localVoiceRu: form.localVoiceRu.value.trim() || READER_DEFAULTS.localVoiceRu,
     apiKey: form.apiKey.value.trim(),
-    model: form.model.value,
-    voice: form.voice.value.trim() || READER_DEFAULTS.voice,
-    style: form.style.value.trim(),
     rate: RATES[+form.rate.value],
     claudeKey: form.claudeKey.value.trim(),
     claudeModel: form.claudeModel.value,

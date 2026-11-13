@@ -41,7 +41,8 @@ function failure(who, status) {
   return `${who} could not handle this request (HTTP ${status}).`;
 }
 
-async function post(who, { url, init }, fetchFn) {
+/** POST JSON -> the JSON body. Throws an Error with a message fit for the user. */
+export async function post(who, { url, init }, fetchFn) {
   let res;
   try {
     res = await fetchFn(url, init);
@@ -82,7 +83,7 @@ export function buildAskRequest({ paper, history, question }, { claudeKey, claud
 /** -> { text, turn, usage }: the answer, the assistant turn to keep in the history (content blocks unchanged), the cost. */
 export async function ask(input, opts, fetchFn = fetch) {
   if (!opts.claudeKey) throw new Error("Add your Claude API key in the extension options.");
-  if (!input.paper.trim()) throw new Error("There is no text to ask about. For a scanned PDF, run the Gemini clean-up first.");
+  if (!input.paper.trim()) throw new Error("There is no text to ask about. For a scanned PDF, use “Read this scan with Gemini” first.");
   if (input.paper.length > MAX_PAPER_CHARS) throw new Error("This text is too long to send to Claude in one piece.");
   const body = await post("Claude", buildAskRequest(input, opts), fetchFn);
   if (body.stop_reason === "refusal") throw new Error("Claude declined to answer this question.");

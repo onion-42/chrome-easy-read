@@ -2,7 +2,6 @@
 import { siteKey, storageKey, tabPatterns, LOCAL_FILES, matchesDomain, parseDomains, looksLikePdfUrl } from "./site.js";
 import { loadReaderOptions, saveReaderOptions, RATES } from "./reader-options.js";
 import { prepareHost } from "./host.js";
-import { synthesize } from "./tts/gemini.js";
 import { synthesizeLocal } from "./tts/local.js";
 import { speakBuiltin, detectLang } from "./tts/builtin.js";
 import { zotero } from "./zotero.js";
@@ -184,17 +183,14 @@ async function readerCommand(tab, type, fromContext = false) {
   }
 }
 
-/* "built-in voice only" is checked against the page's site; for the viewer, the PDF's own site */
+/* the private sites list is checked against the page's site; for the viewer, the PDF's own site */
 function isWorkSite(opts, tab) {
   const host = siteKey(isViewer(tab.url) ? sourceOf(tab.url) : tab.url);
   return Boolean(host && matchesDomain(host, parseDomains(opts.builtinOnly)));
 }
 
-/* Gemini sends text to Google, so work sites fall back to the built-in voice; the local voice stays local */
-function engineFor(opts, tab) {
-  if (opts.engine === "local") return "local";
-  return opts.engine === "gemini" && !isWorkSite(opts, tab) ? "gemini" : "builtin";
-}
+/* the local voice keeps the text on this computer, so it reads every site; anything else is the built-in voice */
+const engineFor = (opts) => (opts.engine === "local" ? "local" : "builtin");
 
 let latestSpeech = null; // id of the newest speak request; late audio for older ones is dropped
 const audioCache = new Map();
@@ -209,7 +205,6 @@ function cachedSynth(key, make) {
   }
   return audioCache.get(key);
 }
-const geminiAudio = (text, o) => cachedSynth(["gemini", o.model, o.voice, o.style, text].join("\u0000"), () => synthesize(text, o));
 const localAudio = (text, lang, o) =>
   cachedSynth(["local", o.localUrl, o.localVoiceEn, o.localVoiceRu, lang, text].join("\u0000"), () => synthesizeLocal(text, lang, o));
 
@@ -243,13 +238,6 @@ const engines = {
     const lang = msg.lang || (await detectLang(msg.text));
     if (latestSpeech === msg.id) speakBuiltin(msg.text, { lang, rate: msg.rate }, send);
   },
-  async gemini(msg, tab) {
-    chrome.tts.stop();
-    const audio = geminiAudio(msg.text, msg.opts);
-    (msg.next ?? []).forEach((text) => geminiAudio(text, msg.opts)); // prefetch while this one plays
-    const result = await audio;
-    if (latestSpeech === msg.id) await playInOffscreen(msg.id, tab.id, result, msg.rate, msg.startMs);
-  },
   async local(msg, tab) {
     chrome.tts.stop();
     const lang = msg.lang || (await detectLang(msg.text));
@@ -263,9 +251,9 @@ const engines = {
 async function speak(msg, tab) {
   latestSpeech = msg.id;
   const opts = await loadReaderOptions();
-  const engine = engineFor(opts, tab);
+  const engine = engineFor(opts);
   // a built-in voice continues from a word by getting the rest of the text; its word positions are
-  // shifted back onto the whole sentence. Gemini and the local voice replay the same audio from msg.startMs instead.
+  // shifted back onto the whole sentence. The local voice replays the same audio from msg.startMs instead.
   const from = engine === "builtin" ? msg.startChar || 0 : 0;
   const send = (ev) => {
     const shifted = ev.event === "word" ? { ...ev, charIndex: ev.charIndex + from } : ev;
@@ -283,7 +271,7 @@ async function speak(msg, tab) {
 /* pause = silence now; the reader keeps its place and resumes by speaking from the marked word */
 async function control(cmd, value) {
   if (cmd === "pause" || cmd === "stop") {
-    latestSpeech = null; // a Gemini reply still on its way will not start playing
+    latestSpeech = null; // audio still on its way will not start playing
     chrome.tts.stop();
     await toOffscreen("stop");
   } else if (cmd === "rate") {
@@ -295,18 +283,17 @@ async function control(cmd, value) {
 async function testVoice() {
   const opts = await loadReaderOptions();
   latestSpeech = "test";
-  if (opts.engine === "builtin") {
+  if (engineFor(opts) === "builtin") {
     speakBuiltin(TEST_PHRASE, { lang: "en", rate: opts.rate }, () => {});
     return;
   }
-  const audio = opts.engine === "local" ? synthesizeLocal(TEST_PHRASE, "en", opts) : synthesize(TEST_PHRASE, opts);
-  await playInOffscreen("test", null, await audio, opts.rate);
+  await playInOffscreen("test", null, await synthesizeLocal(TEST_PHRASE, "en", opts), opts.rate);
 }
 
 /** Notes panel: a question about the paper (Claude) or a translation (DeepSeek). Work sites send nothing. */
 async function assist(msg, tab) {
   const opts = await loadReaderOptions();
-  if (isWorkSite(opts, tab)) throw new Error("Off for this site: it is on the “built-in voice only” list in options.");
+  if (isWorkSite(opts, tab)) throw new Error("Off for this site: it is on the private sites list in options.");
   if (msg.op === "ask") return self.easyRead.assist.ask({ paper: msg.paper, history: msg.history, question: msg.question }, opts);
   if (msg.op === "translate") return self.easyRead.assist.translate(msg.text, opts);
   throw new Error(`Unknown assist operation: ${msg.op}`);

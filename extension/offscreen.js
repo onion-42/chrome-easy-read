@@ -1,4 +1,4 @@
-// Hidden extension page that plays Gemini audio: no page CSP, speed changes keep the pitch.
+// Hidden extension page that plays the local voice's audio: no page CSP, speed changes keep the pitch.
 import { pcmToWav, base64ToBytes } from "./wav.js";
 
 const audio = new Audio();

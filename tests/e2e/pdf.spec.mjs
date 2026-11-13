@@ -1,5 +1,8 @@
 import { readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { test, expect, toggleSite, TEST_PDF } from "./fixtures.mjs";
+
+const SCAN_PDF = path.join(path.dirname(TEST_PDF), "scan.pdf");
 
 const viewerUrl = (sw, file) => `chrome-extension://${new URL(sw.url()).host}/viewer.html${file ? `?file=${encodeURIComponent(file)}` : ""}`;
 
@@ -89,28 +92,35 @@ test("right-click 'Open PDF in easy-read' opens the viewer in a new tab", async 
   await expect(viewer).toHaveURL(/\/viewer\.html\?file=.*paper\.pdf/);
 });
 
-test("Clean up with Gemini shows the cleaned text and keeps it for next time", async ({ context, sw, server }) => {
-  const reader = { engine: "builtin", apiKey: "test-key", builtinOnly: "" };
+test("Clean up with DeepSeek sends the text of the PDF, shows the cleaned text and keeps it for next time", async ({ context, sw, server }) => {
+  const reader = { engine: "builtin", deepseekKey: "test-key", builtinOnly: "" };
   const fake = () => {
     window.__calls = 0;
-    window.easyReadViewer.clean = async () => {
+    window.easyReadViewer.readScan = async () => { throw new Error("a PDF with text must not go to Gemini"); };
+    window.easyReadViewer.clean = async (text, opts) => {
       window.__calls += 1;
+      window.__sent = { text, key: opts.deepseekKey };
       return "# Cleaned title\n\nCleaned paragraph one.\n\n[[page 2]]\n\nSecond page text.";
     };
   };
   let page = await openViewer(context, sw, server, { reader });
   await page.evaluate(fake);
-  await page.getByRole("button", { name: "Clean up with Gemini" }).click();
+  await page.getByRole("button", { name: "Clean up with DeepSeek" }).click();
   await expect(page.locator("article")).toContainText("Cleaned paragraph one.");
   await expect(page.locator("article h2", { hasText: "Cleaned title" })).toBeVisible();
+  const sent = await page.evaluate(() => window.__sent);
+  expect(sent.key).toBe("test-key");
+  expect(sent.text).toMatch(/^\[\[page 1\]\]/); // the text read from the PDF, page markers included
+  expect(sent.text).toContain("Response to checkpoint blockade varies widely [1, 2].");
+  expect(sent.text).toContain("[[page 2]]");
   await expect(page.locator(".er-page[data-page='2']")).toBeAttached();
   await expect(page.locator("article")).not.toContainText("Response to checkpoint blockade");
 
-  // reopen: the cleaned text comes from the cache, Gemini is not asked again
+  // reopen: the cleaned text comes from the cache, DeepSeek is not asked again
   await page.close();
   page = await openViewer(context, sw, server, { reader });
   await page.evaluate(fake);
-  await page.getByRole("button", { name: "Clean up with Gemini" }).click();
+  await page.getByRole("button", { name: "Clean up with DeepSeek" }).click();
   await expect(page.locator("article")).toContainText("Cleaned paragraph one.");
   expect(await page.evaluate(() => window.__calls)).toBe(0);
 
@@ -119,17 +129,18 @@ test("Clean up with Gemini shows the cleaned text and keeps it for next time", a
   await expect(page.locator("article")).toContainText("Response to checkpoint blockade");
 });
 
-test("a late Gemini answer is not shown over a PDF opened in the meantime", async ({ context, sw, server }) => {
-  const page = await openViewer(context, sw, server, { reader: { engine: "builtin", apiKey: "k", builtinOnly: "" } });
+test("a late clean-up answer is not shown over a PDF opened in the meantime", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server, { reader: { engine: "builtin", deepseekKey: "k", builtinOnly: "" } });
   await page.evaluate(() => {
     window.easyReadViewer.clean = () => new Promise((resolve) => { window.__release = () => resolve("# Late\n\nLate cleaned text."); });
   });
-  await page.getByRole("button", { name: "Clean up with Gemini" }).click();
-  await page.locator('input[type="file"]').setInputFiles(TEST_PDF); // another PDF while Gemini works
+  await page.getByRole("button", { name: "Clean up with DeepSeek" }).click();
+  await page.locator('input[type="file"]').setInputFiles(TEST_PDF); // another PDF while DeepSeek works
   await expect(page.locator("body")).toHaveAttribute("data-state", "ready");
   await page.evaluate(() => window.__release());
   await page.waitForTimeout(300);
   await expect(page.locator("article")).not.toContainText("Late cleaned text.");
+  await expect(page.getByRole("button", { name: "Clean up with DeepSeek" })).toBeEnabled();
   await expect(page.locator("article")).toContainText("Fecal transplants restored response in mice.");
 });
 
@@ -140,10 +151,10 @@ test("a broken second PDF leaves the open one working", async ({ context, sw, se
   await expect(page.locator("article")).toContainText("Fecal transplants restored response in mice.");
   await page.getByRole("button", { name: "Show page 1" }).click();
   await expect(page.locator("figure canvas").first()).toBeVisible();
-  // Gemini would get the PDF on screen, not the broken file
-  await page.evaluate(() => { window.easyReadViewer.clean = async (bytes) => { window.__sent = bytes.length; return "# A\n\nB."; }; });
-  await page.getByRole("button", { name: "Clean up with Gemini" }).click();
-  await expect.poll(() => page.evaluate(() => window.__sent)).toBe(statSync(TEST_PDF).size);
+  // DeepSeek would get the text of the PDF on screen, not of the broken file
+  await page.evaluate(() => { window.easyReadViewer.clean = async (text) => { window.__sent = text; return "# A\n\nB."; }; });
+  await page.getByRole("button", { name: "Clean up with DeepSeek" }).click();
+  await expect.poll(() => page.evaluate(() => window.__sent)).toContain("Fecal transplants restored response in mice.");
 });
 
 test("a second PDF replaces the first", async ({ context, sw, server }) => {
@@ -161,9 +172,51 @@ test("PDFs behind a login open: the viewer sends the site's cookies", async ({ c
   await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
 });
 
-test("Clean up is off for built-in-voice-only sites", async ({ context, sw, server }) => {
-  const page = await openViewer(context, sw, server, { reader: { engine: "gemini", apiKey: "k", builtinOnly: "127.0.0.1" } });
-  await expect(page.getByRole("button", { name: "Clean up with Gemini" })).toBeDisabled();
+test("Clean up is off for private sites", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server, { reader: { engine: "builtin", deepseekKey: "k", builtinOnly: "127.0.0.1" } });
+  const button = page.getByRole("button", { name: "Clean up with DeepSeek" });
+  await expect(button).toBeDisabled();
+  await page.evaluate(() => {
+    window.easyReadViewer.clean = async () => { window.__sent = true; return "# A\n\nB."; };
+    document.querySelector("#clean").disabled = false; // a button that is out of date
+  });
+  await button.click();
+  await expect(page.locator("#status")).toContainText("private sites");
+  expect(await page.evaluate(() => window.__sent)).toBeUndefined();
+});
+
+test("Clean up follows the “do not send this document” box of the notes panel", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server, { reader: { engine: "builtin", deepseekKey: "k", builtinOnly: "" } });
+  const button = page.getByRole("button", { name: "Clean up with DeepSeek" });
+  await expect(button).toBeEnabled();
+  await page.evaluate(() => chrome.storage.local.set({ "assist-local-only": { [window.__erDoc().hash]: true } }));
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute("title", /do not send/);
+  // the check is made again right before sending: a button that is out of date still sends nothing
+  await page.evaluate(() => {
+    window.easyReadViewer.clean = async () => { window.__sent = true; return "# A\n\nB."; };
+    document.querySelector("#clean").disabled = false;
+  });
+  await button.click();
+  await expect(page.locator("#status")).toContainText("do not send");
+  expect(await page.evaluate(() => window.__sent)).toBeUndefined();
+  await page.evaluate(() => chrome.storage.local.set({ "assist-local-only": {} }));
+  await expect(button).toBeEnabled();
+});
+
+test("a scan has no text, so its button sends the PDF file to Gemini", async ({ context, sw, server }) => {
+  await sw.evaluate(() => chrome.storage.local.set({ reader: { engine: "builtin", apiKey: "gemini-key", deepseekKey: "k", builtinOnly: "" } }));
+  const page = await context.newPage();
+  await page.goto(viewerUrl(sw, `${server}/scan.pdf`));
+  await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
+  await expect(page.locator("#status")).toContainText("Read this scan with Gemini");
+  await page.evaluate(() => {
+    window.easyReadViewer.clean = async () => { throw new Error("a scan has no text for DeepSeek"); };
+    window.easyReadViewer.readScan = async (bytes, apiKey) => { window.__scan = { size: bytes.length, apiKey }; return "# Scanned title\n\nText read from the picture."; };
+  });
+  await page.getByRole("button", { name: "Read this scan with Gemini" }).click();
+  await expect(page.locator("article")).toContainText("Text read from the picture.");
+  expect(await page.evaluate(() => window.__scan)).toEqual({ size: statSync(SCAN_PDF).size, apiKey: "gemini-key" });
 });
 
 test("Open a PDF… loads a file from the computer", async ({ context, sw }) => {

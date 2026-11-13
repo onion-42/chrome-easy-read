@@ -4,14 +4,14 @@ Reading comfort per site, plus reading aloud with subtitles that look the same a
 
 - **easy-read on any site:** dyslexia-friendly font (OpenDyslexic), text size, line and letter spacing,
   calm colours, colour-vision filter (red-green / blue-yellow), bold word starts, focus highlight.
-- **Read aloud:** a natural Gemini voice, a local neural voice (Piper, offline) or the free built-in voice
-  reads from the paragraph you choose.
+- **Read aloud:** a local neural voice (Piper, offline) or the free built-in voice reads from the paragraph
+  you choose.
   A subtitle bar shows the current sentence and marks the spoken word, in your easy-read style.
 - **Citations are not read:** `[1, 2]`, `(Smith et al., 2020)`, superscript refs, DOIs and footnote marks are
   skipped by the voice and shown small and faded. URLs are read as their domain.
 - **PDFs too:** a PDF opens as easy-read text (paragraphs, headings, two columns put in order, running headers and
   line numbers removed), with reading aloud. "Show page" draws the real page for figures and tables;
-  "Clean up with Gemini" rebuilds messy or scanned PDFs.
+  "Clean up with DeepSeek" tidies a messy PDF; "Read this scan with Gemini" reads a scanned one.
 - **Ask and translate:** in the notes panel, ask Claude a question about the paper you are reading, or
   translate the selected text with DeepSeek. An answer goes into a note with one click.
 
@@ -22,7 +22,8 @@ Comfort and choice, not a treatment: studies of dyslexia fonts found no reliable
 1. Open `chrome://extensions` and switch on **Developer mode** (top right).
 2. Click **Load unpacked** and choose the **`extension`** folder of this repo.
 3. Pin the "Aa" icon (puzzle icon in the toolbar → pin).
-4. For the Gemini voice: right-click the icon → **Options** → paste your API key → **Test voice**.
+4. Right-click the icon → **Options**: choose the voice (**Test voice**) and paste the API keys you want to use
+   (DeepSeek for clean-up and translation, Claude for questions, Gemini for scanned PDFs). All are optional.
 
 ### Local neural voice (optional, offline)
 
@@ -54,12 +55,13 @@ macOS and Windows have no systemd. Download the voices with the command in the l
 | Read aloud / pause / resume | **Alt+Shift+R**, or the 🔊 button next to Aa |
 | Pause / resume while reading | **Space** (stops on the current word; resume continues from it) |
 | Start from a selection | select text, then Alt+Shift+R or 🔊 |
-| Voice, speed, citations, work sites | extension **Options** |
+| Voice, speed, citations, private sites | extension **Options** |
 | Open a PDF as easy-read text | on the PDF: click the "Aa" icon (badge `PDF` on remembered sites); click again → back |
 | Open a PDF link as easy-read text | right-click the link → **Open PDF in easy-read** |
 | A PDF from your computer | in the viewer: **Open a PDF…**, or drag the file in (or allow file URLs, below) |
 | See figures / tables of a page | the **Show page** button at each page marker |
-| Messy or scanned PDF | **Clean up with Gemini** in the viewer header (kept for the last 10 PDFs) |
+| Messy PDF | **Clean up with DeepSeek** in the viewer header (kept for the last 10 PDFs) |
+| Scanned PDF (no text) | the same button reads **Read this scan with Gemini** |
 
 Local PDFs opened from disk (`file://`) need **Allow access to file URLs** on the extension's details page
 in `chrome://extensions`; "Open a PDF…" works without it.
@@ -101,32 +103,35 @@ Open the notes panel (📝 or Alt+Shift+N) and unfold **«Помощник: во
 | Ask a follow-up | just ask: the conversation is kept until **Новый разговор** or a new document |
 | Translate a passage | select it in the article → **Перевести выделенное** (any length up to 60,000 characters) |
 | Keep an answer | **В заметку** puts it into the note box; save the note as usual |
-| Keep one document private | tick **Не отправлять этот документ в Claude и DeepSeek** (remembered for this document) |
+| Keep one document private | tick **Не отправлять этот документ в Claude и DeepSeek** (remembered for this document; also switches off **Clean up with DeepSeek**) |
 
 Setup: in **Options** paste a Claude API key (from platform.claude.com; a Claude subscription does not include
-one) and a DeepSeek API key. The translation service is editable: any OpenAI-compatible address, model and key.
+one) and a DeepSeek API key. The DeepSeek service is editable: any OpenAI-compatible address, model and key.
 
 Cost: a question sends the whole paper. The paper is cached at Anthropic for 1 hour, so follow-up questions are
 much cheaper than the first. The line under each answer shows the tokens and the approximate price; prices are
 a table in `extension/assist.js` (checked 2026-11-13) and may drift from the real bill.
 
-For a scanned PDF run **Clean up with Gemini** first: without text there is nothing to ask about.
+For a scanned PDF press **Read this scan with Gemini** first: without text there is nothing to ask about.
 
 ## Privacy
 
-- Settings (look) sync through your Chrome profile. The Gemini API key stays in this Chrome only.
-- With the Gemini voice, the text being read is sent to Google. Sites listed under
-  **"Built-in voice only"** in Options (empty by default; add a work wiki, mail, etc.) always use the built-in voice.
-- The built-in voice works offline; nothing leaves the computer.
-- The local neural voice sends the text only to the Piper server on `127.0.0.1`, so it also reads the
-  "Built-in voice only" sites.
-- A question to Claude sends the text of the open paper and your questions to Anthropic. A translation sends the
-  selected text to DeepSeek (or the address you set). Nothing is sent until you press one of the two buttons.
-  Both are off on the "Built-in voice only" sites and for a document with the "do not send" box ticked.
-  That box covers Claude and DeepSeek only; the Gemini voice and clean-up follow their own settings above.
-- The Claude and DeepSeek keys stay in this Chrome only.
-- PDFs are read on this computer. Only **Clean up with Gemini** sends the whole PDF to Google (model
-  `gemini-3.8-flash`, about a few cents per paper); it is switched off for the "Built-in voice only" sites.
+- Settings (look) sync through your Chrome profile. The API keys (DeepSeek, Claude, Gemini) stay in this Chrome only.
+- Reading aloud never leaves the computer: the built-in voice works offline, and the local neural voice sends
+  the text only to the Piper server on `127.0.0.1`.
+- Nothing is sent anywhere until you press a button that says so. The buttons and what they send:
+
+  | Button | Sends | To |
+  |---|---|---|
+  | Спросить Claude | the text of the open paper and your questions | Anthropic |
+  | Перевести выделенное | the selected text | DeepSeek (or the address you set) |
+  | Clean up with DeepSeek | the text of the open PDF | DeepSeek (or the address you set) |
+  | Read this scan with Gemini | the PDF file | Google (model `gemini-3.8-flash`) |
+
+- Sites listed under **Private sites** in Options (empty by default; add a work wiki, mail, etc.) switch all
+  four buttons off. Reading aloud still works there.
+- The "do not send" box in the notes panel switches off the three Claude and DeepSeek buttons for that document.
+- PDFs are read on this computer. A clean-up costs a few cents per paper.
 
 ## Develop
 
@@ -137,10 +142,9 @@ npm run e2e         # Chromium with the extension loaded (Playwright)
 npm run sync        # copy easy-read.js from the easy-read skill after it changes
 npm run icons       # re-render the toolbar icons
 node scripts/fetch-fonts.mjs     # re-download OpenDyslexic (SIL OFL)
-node scripts/gemini-smoke.mjs    # one real Gemini request; needs GEMINI_API_KEY in your terminal
 node scripts/assist-smoke.mjs    # one real Claude + DeepSeek request; needs ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
 npm run vendor      # copy PDF.js (pinned pdfjs-dist) into extension/vendor/pdfjs
-npm run test-pdf    # re-print tests/e2e/pages/paper.pdf from paper.html
+npm run test-pdf    # re-print tests/e2e/pages/paper.pdf from paper.html, and scan.pdf (a page without text)
 node scripts/pdf-to-text.mjs some.pdf   # print how the viewer re-flows a PDF
 ```
 
@@ -154,14 +158,13 @@ background.js   service worker: per-site toggle, injection, badge, voice routing
 easy-read.js    the reading-comfort layer (from the skill) + public API: setEnabled, getState, onChange, emphasize
 text.js         pure: citation filter, sentence chunks (Intl.Segmenter), word-time estimate
 reader.js       in the page: start point, paragraph highlight, subtitle bar, controls
-tts/gemini.js   Gemini TTS request (24 kHz PCM) with plain-language errors
 tts/local.js    local Piper server request (WAV -> PCM) with plain-language errors
 tts/builtin.js  chrome.tts voices with word events
-offscreen.js    plays Gemini and local audio outside the page (no page CSP, speed keeps the pitch)
+offscreen.js    plays the local voice's audio outside the page (no page CSP, speed keeps the pitch)
 options.*       voice settings
-viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", Gemini clean-up
+viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", clean-up
 pdf-text.js     pure: PDF text items -> paragraphs / headings (columns, hyphens, running headers, line numbers)
-pdf-clean.js    Gemini clean-up request + Markdown -> plain blocks
+pdf-clean.js    clean-up requests (DeepSeek: text, Gemini: scans) + Markdown -> plain blocks
 assist.js       Claude question + DeepSeek translation requests, price estimate, plain-language errors
 assist-ui.js    in the page: the assistant section of the notes panel
 gemini-api.js   shared Gemini REST helper (request, plain-language errors, reading the model's output)
@@ -172,7 +175,7 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 ## Known limits
 
 - Notes: a quote taken in the HTML version may not be highlighted in the PDF version of the same paper (and the
-  reverse), and not after a Gemini clean-up: the text differs. The note itself is always in the list.
+  reverse), and not after a clean-up: the text differs. The note itself is always in the list.
 - Notes with images, tables or Zotero's own highlights cannot be edited here.
 - A PDF of 95 MB or more is not written to the vault (GitHub rejects files of 100 MB).
 - After a Chrome restart the vault folder needs one click to confirm access; notes are saved to Zotero regardless.
@@ -182,16 +185,14 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - The conversation with Claude lives in the tab. A reload or another document starts a new one.
 - A paper is sent as the text the viewer shows; figures and tables are not seen by Claude.
 
-- Gemini and the local voice return no word timings, so the marked word is an estimate; the sentence is exact.
+- The local voice returns no word timings, so the marked word is an estimate; the sentence is exact.
 - Pause stops on the marked word; resume and a new speed continue from that word. The built-in voice gets
-  the rest of the sentence (word-exact); Gemini replays the same audio from the word's estimated start, so it
+  the rest of the sentence (word-exact); the local voice replays the same audio from the word's estimated start, so it
   can begin a fraction of a second early or late. A built-in voice that reports no words resumes from the
   start of the sentence. Space does nothing special while you type in a field or a button has focus.
 - Speed is a slider from 0.75× to 10× on a log-like scale of round values: small steps at slow speeds
-  (+0.05 up to 1.1×), bigger ones at fast speeds (+1 from 6× to 10×). The Gemini voice prepares about
-  2 sentences ahead per 1× of speed (2 at 1×, 6 at 3×, at most 8); if Gemini answers slower than you listen,
-  short gaps between sentences can still appear. At high speeds every sentence is one Gemini request, so the
-  free-tier rate limit comes sooner. Some built-in (OS) voices have their own top speed and may not reach 10×.
+  (+0.05 up to 1.1×), bigger ones at fast speeds (+1 from 6× to 10×). The local voice prepares about
+  2 sentences ahead per 1× of speed (2 at 1×, 6 at 3×, at most 8). Some built-in (OS) voices have their own top speed and may not reach 10×.
 - Citation filter trade-offs: one-author citations need a comma to be skipped — `(Smith, 2020)` is skipped,
   comma-less `(Smith 2020)` is read, so `(Since 2020)` is never lost. A year in brackets after a capitalised
   word, `Paris (2019)`, is treated like `Smith (2019)` and skipped.
@@ -199,7 +200,11 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - Text inside iframes (embedded viewers) is neither restyled nor read.
 - PDF text view: a real hyphen at a line end ("short-" / "chain") cannot be told from a split word and is
   dropped; unusual layouts (three columns, side boxes, tables) can come out in a wrong order; equations come out
-  as broken symbols. "Clean up with Gemini" fixes most of this. Scanned PDFs have no text without Gemini.
+  as broken symbols. "Clean up with DeepSeek" repairs broken lines, split words and headings, but it only sees
+  the text that was read, not the page: a wrong column order stays wrong. Scanned PDFs have no text until
+  "Read this scan with Gemini".
+- A clean-up asks the model to keep the wording, but nothing checks that it did. "Show local text" brings back
+  the text read on this computer.
 - A very long PDF (a whole book) is read completely before the text appears ("Reading page N of M…").
 - Text added to the page later (feeds, single-page apps) gets bold word starts after an off/on.
 - Settings changed in one tab reach other open tabs on their next reload.

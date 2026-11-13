@@ -19,7 +19,7 @@ function failure(status, body) {
   if (status === 401 || status === 403 || reasons.includes("API_KEY_INVALID")) {
     return "Gemini rejected the API key. Check it in the extension options.";
   }
-  if (status === 429) return "Gemini rate limit reached. Wait a minute, or switch to the built-in voice in options.";
+  if (status === 429) return "Gemini rate limit reached. Wait a minute and try again.";
   if (status === 413) return "This file is too big for Gemini.";
   if (status >= 500) return `Gemini is unavailable right now (HTTP ${status}). Try again later.`;
   return `Gemini could not handle this request (HTTP ${status}).`;
@@ -38,8 +38,8 @@ export async function send({ url, init }, fetchFn = fetch) {
   return body;
 }
 
-/** Contents of one type ("audio", "text") from the model's output steps, in order.
- * (The SDKs' output_audio / output_text are helpers; the REST body only has steps.) */
+/** Contents of one type ("text") from the model's output steps, in order.
+ * (The SDKs' output_text is a helper; the REST body only has steps.) */
 export function modelOutputs(body, type) {
   return (body?.steps ?? [])
     .filter((s) => s.type === "model_output")

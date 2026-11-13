@@ -1,4 +1,4 @@
-// 16-bit PCM <-> WAV: an <audio> element plays Gemini's raw audio, the local voice server answers with WAV.
+// 16-bit PCM <-> WAV: the local voice server answers with WAV; an <audio> element plays it back as WAV.
 
 const HEADER_BYTES = 44;
 

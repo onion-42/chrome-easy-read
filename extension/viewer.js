@@ -1,8 +1,8 @@
 // easy-read PDF viewer: the PDF's text as calm HTML (easy-read + reading aloud), the real page on demand,
-// and an optional Gemini clean-up. Opened as viewer.html?file=<url>, or with "Open a PDF…" / drag and drop.
+// and an optional clean-up (DeepSeek for the text, Gemini for scans). Opened as viewer.html?file=<url>, or with "Open a PDF…" / drag and drop.
 import * as pdfjs from "./vendor/pdfjs/build/pdf.min.mjs";
 import { pageToItems, reflow, drawScale } from "./pdf-text.js";
-import { cleanPdf, markdownToBlocks } from "./pdf-clean.js";
+import { cleanPdf, cleanText, blocksToText, markdownToBlocks } from "./pdf-clean.js";
 import { loadReaderOptions } from "./reader-options.js";
 import { siteKey, matchesDomain, parseDomains } from "./site.js";
 import { prepareHost } from "./host.js";
@@ -32,8 +32,11 @@ const cleanBtn = $("clean");
 // task: the pdf.js loading task (it owns the document); source: { url, name }; hash: SHA-256 of the bytes
 const state = { task: null, doc: null, bytes: null, hash: null, source: null, local: [], showing: "local" };
 
-// the tests swap `clean` for a fake; everything else calls it through here
-window.easyReadViewer = { clean: (bytes, apiKey) => cleanPdf(bytes, apiKey) };
+// the tests swap these for fakes; everything else calls them through here
+window.easyReadViewer = {
+  clean: (text, opts) => cleanText(text, opts),          // DeepSeek: the text read from the PDF
+  readScan: (bytes, apiKey) => cleanPdf(bytes, apiKey),  // Gemini: the PDF file itself
+};
 
 // for notes.js: what is open (so Zotero can recognise the paper), and "keep this file in the vault"
 window.__erDoc = () => ({
@@ -188,14 +191,16 @@ async function openPdf(bytes, source) {
     }
     const title = (await doc.getMetadata().catch(() => null))?.info?.Title?.trim();
     const previous = state.task;
-    Object.assign(state, { task, doc, bytes, hash: await sha256(bytes), local: reflow(pages), showing: "local",
+    const hash = await sha256(bytes);
+    cleanBtn.disabled = true; // until updateCleanButton() below has checked the new document
+    Object.assign(state, { task, doc, bytes, hash, local: reflow(pages), showing: "local",
       source: { ...source, name: title || source.name } });
     previous?.destroy().catch((e) => console.warn("easy-read viewer: closing the previous PDF failed", e));
     showSource();
     show(state.local);
     await setLanguage();
     await announceDoc();
-    status(textLength(state.local) < MIN_TEXT ? "This PDF has no text layer (it is a scan). “Clean up with Gemini” can read it." : "");
+    status(isScan(state.local) ? "This PDF has no text layer (it is a scan). “Read this scan with Gemini” can read it." : "");
     setState("ready");
   } catch (e) {
     console.error("easy-read viewer: PDF could not be opened", e);
@@ -270,9 +275,20 @@ async function openFile(file) {
   await openPdf(new Uint8Array(await file.arrayBuffer()), { url: null, name: file.name });
 }
 
-/* ---------- Gemini clean-up ---------- */
+/* ---------- clean-up: DeepSeek for a PDF with text, Gemini for a scan ---------- */
 
-const cacheKey = () => state.hash; // by content: two different files named paper.pdf never mix
+const LOCAL_ONLY = "assist-local-only"; // the notes panel's "do not send this document to Claude and DeepSeek"
+const isScan = (local) => textLength(local) < MIN_TEXT;
+
+/** Why this document must not be sent for clean-up, or "" when it may. doc: { hash, local, source }. */
+async function whyNotSent(doc) {
+  const host = doc.source?.url ? siteKey(doc.source.url) : null;
+  if (host && matchesDomain(host, parseDomains((await loadReaderOptions()).builtinOnly))) {
+    return "Off for this site: it is on the private sites list in options.";
+  }
+  const keptLocal = !isScan(doc.local) && Boolean(((await chrome.storage.local.get(LOCAL_ONLY))[LOCAL_ONLY] ?? {})[doc.hash]);
+  return keptLocal ? "Off for this document: “do not send to Claude and DeepSeek” is ticked in the notes panel." : "";
+}
 
 async function readCache(key) {
   const list = (await chrome.storage.local.get(CACHE_KEY))[CACHE_KEY] ?? [];
@@ -292,14 +308,15 @@ async function updateCleanButton() {
     cleanBtn.title = "Back to the text read from the PDF on this computer.";
     return;
   }
-  cleanBtn.textContent = "Clean up with Gemini";
-  const opts = await loadReaderOptions();
-  const host = state.source?.url ? siteKey(state.source.url) : null;
-  const workSite = host && matchesDomain(host, parseDomains(opts.builtinOnly));
-  cleanBtn.disabled = !state.bytes || Boolean(workSite);
-  cleanBtn.title = workSite
-    ? "Off for this site: it is on the “built-in voice only” list in options."
-    : "Sends this PDF to Google’s Gemini and shows its cleaned-up text (costs a few cents; kept for next time).";
+  const doc = state.doc;
+  const scan = isScan(state.local);
+  const why = state.bytes ? await whyNotSent(state) : "";
+  if (state.doc !== doc || state.showing === "cleaned") return; // changed while the settings were read: a newer call sets the button
+  cleanBtn.textContent = scan ? "Read this scan with Gemini" : "Clean up with DeepSeek";
+  cleanBtn.disabled = !state.bytes || Boolean(why);
+  cleanBtn.title = why
+    || (scan ? "Sends this PDF to Google’s Gemini, which reads the scanned pages (costs a few cents; kept for next time)."
+      : "Sends the text of this PDF to DeepSeek and shows its cleaned-up version (costs a few cents; kept for next time).");
 }
 
 async function cleanUp() {
@@ -309,15 +326,27 @@ async function cleanUp() {
     await updateCleanButton();
     return;
   }
-  const key = cacheKey();
-  const doc = state.doc; // another PDF may be opened while Gemini works
-  let md = await readCache(key);
+  // one document from the click to the answer: another PDF may be opened at any await below, and neither its
+  // text nor its cache entry may get mixed up with this one. The cache key is the hash of the file's content.
+  const { doc, hash, local, bytes, source } = state;
+  if (!bytes) return;
+  let md = await readCache(hash);
   if (!md) {
     cleanBtn.disabled = true;
-    status("Gemini is reading the PDF. This can take a minute…");
+    const scan = isScan(local);
     try {
-      md = await window.easyReadViewer.clean(state.bytes, (await loadReaderOptions()).apiKey);
-      await writeCache(key, md);
+      const opts = await loadReaderOptions();
+      const why = await whyNotSent({ hash, local, source }); // checked again here: the button may be out of date
+      if (state.doc !== doc) return;
+      if (why) {
+        status(why);
+        await updateCleanButton();
+        return;
+      }
+      status(scan ? "Gemini is reading the scan. This can take a minute…" : "DeepSeek is cleaning the text. This can take a minute…");
+      md = scan ? await window.easyReadViewer.readScan(bytes, opts.apiKey)
+        : await window.easyReadViewer.clean(blocksToText(local), opts);
+      await writeCache(hash, md);
     } catch (e) {
       console.warn("easy-read viewer: clean-up failed", e);
       if (state.doc !== doc) return;
@@ -337,6 +366,9 @@ async function cleanUp() {
 /* ---------- wiring ---------- */
 
 cleanBtn.addEventListener("click", () => cleanUp());
+chrome.storage.onChanged.addListener((changes, area) => { // the "do not send" box was ticked or cleared in the notes panel
+  if (area === "local" && changes[LOCAL_ONLY]) updateCleanButton().catch((e) => console.warn("easy-read viewer: clean button not updated", e));
+});
 $("open").addEventListener("click", () => $("file").click());
 $("file").addEventListener("change", (e) => openFile(e.target.files[0]));
 document.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("drag"); });
