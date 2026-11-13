@@ -20,7 +20,11 @@ export function makeCache(storage) {
   return {
     async get(ids) {
       const list = await read();
-      return list.find(([id]) => ids.includes(id))?.[1] ?? null;
+      for (const id of ids) { // strongest id first: a DOI match beats an address that was cached for another paper
+        const hit = list.find(([cached]) => cached === id);
+        if (hit) return hit[1];
+      }
+      return null;
     },
     async set(ids, key) {
       const list = (await read()).filter(([id]) => !ids.includes(id));
@@ -172,8 +176,13 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
     },
     /** The PDF now lives in the vault: remember the path on the item and the file's hash in the cache. */
     async pdfSaved({ key, path, hash }) {
-      const it = await zot.item(key);
-      if (P.extraGet(it.data.extra, "pdf") !== path) await zot.patch(key, { extra: P.extraSet(it.data.extra || "", "pdf", path) }, it.version);
+      for (let attempt = 0; ; attempt++) {
+        const it = await zot.item(key);
+        if (P.extraGet(it.data.extra, "pdf") === path) break;
+        const res = await zot.patch(key, { extra: P.extraSet(it.data.extra || "", "pdf", path) }, it.version);
+        if (!res.conflict) break;
+        if (attempt) throw new Error("Запись изменилась в Zotero, путь к PDF не записан. Повтори.");
+      }
       if (hash) await cache.set([`h:${hash}`], key);
       return { path };
     },

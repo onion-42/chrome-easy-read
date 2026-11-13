@@ -70,16 +70,22 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
     children: (key) => paged(`${u()}/items/${key}/children`),
     item: async (key) => (await call("GET", `${u()}/items/${key}`)).data,
     findByDoi: async (doi) => {
-      const { data } = await call("GET", `${u()}/items?q=${encodeURIComponent(doi)}&qmode=everything&limit=5`);
+      // top-level items only: child notes quote the paper's address and would crowd the paper out of the results
+      const { data } = await call("GET", `${u()}/items/top?q=${encodeURIComponent(doi)}&qmode=everything&limit=25`);
       return data.find((it) => (it.data.DOI || "").toLowerCase() === doi.toLowerCase()) || null;
     },
     findByUrl: async (url) => {
-      const { data } = await call("GET", `${u()}/items?q=${encodeURIComponent(url)}&qmode=everything&limit=5`);
+      const { data } = await call("GET", `${u()}/items/top?q=${encodeURIComponent(url)}&qmode=everything&limit=25`);
       return data.find((it) => it.data.url === url && it.data.itemType !== "attachment") || null;
     },
     create,
     /** PATCH; returns { version } or { conflict: true } when the item changed since ifVersion. */
-    patch: (key, fields, ifVersion) => call("PATCH", `${u()}/items/${key}`, { body: fields, ifVersion }),
+    patch: async (key, fields, ifVersion) => {
+      const res = await call("PATCH", `${u()}/items/${key}`, { body: fields, ifVersion });
+      // the marker of a note file needs the new version; without it the next sync would see a fresh file
+      if (!res.conflict && !res.version) throw new Error("Zotero не вернул версию записи после изменения.");
+      return res;
+    },
   };
 }
 

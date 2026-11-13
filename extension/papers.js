@@ -38,11 +38,11 @@ export function findPmid({ meta = {}, url = "" } = {}) {
 
 /** Address of the document's PDF: the PDF itself, else citation_pdf_url (may be relative to the page), else null. */
 export function pdfUrlOf({ meta = {}, url = "", isPdf = false } = {}) {
-  if (isPdf) return url || null;
-  const raw = (meta["citation_pdf_url"] || "").trim();
+  const raw = isPdf ? url : (meta["citation_pdf_url"] || "").trim();
   if (!raw) return null;
   try {
-    return new URL(raw, url || undefined).href;
+    const found = new URL(raw, url || undefined);
+    return /^https?:$/.test(found.protocol) ? found.href : null; // a page must not point the viewer at file: or chrome:
   } catch {
     return null;
   }
@@ -205,7 +205,7 @@ export function withInboxLine(text, line, slug) {
 const escapeHtml = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const unescapeHtml = (s) =>
   s.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, "&");
+    .replace(/&#(\d+);/g, (m, n) => (Number(n) <= 0x10ffff ? String.fromCodePoint(Number(n)) : m)).replace(/&amp;/g, "&");
 
 function inlineToHtml(text) {
   const kept = [];

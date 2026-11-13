@@ -121,3 +121,18 @@ test("attach ties an open local file to a chosen paper; list groups the reading 
   assert.equal((await w.ops.status({ doc: { hash: "ff", url: "", meta: {} } })).paper.key, "6CB3DZSS");
   assert.deepEqual((await w.ops.list()).groups.map((g) => [g.name, g.items.map((i) => i.key)]), [["VBC", ["6CB3DZSS"]]]);
 });
+
+test("review: a DOI match in the cache beats an address cached for another paper", async () => {
+  const mem = { zoteroDocs: [["u:https://x.org/latest", "PAPER_A"], ["d:10.1234/b", "PAPER_B"]] };
+  const cache = makeCache({ get: async (k) => ({ [k]: mem[k] }), set: async (o) => void Object.assign(mem, o) });
+  assert.equal(await cache.get(["d:10.1234/b", "u:https://x.org/latest"]), "PAPER_B");
+  assert.equal(await cache.get(["u:https://x.org/latest"]), "PAPER_A");
+  assert.equal(await cache.get(["h:none"]), null);
+});
+
+test("review: pdfSaved retries once when the item changed in Zotero, then reports the failure", async () => {
+  const plain = { key: "P1", version: 999, data: { itemType: "journalArticle", title: "t", extra: "" } };
+  const w = world({ items: [plain] });
+  await assert.rejects(w.ops.pdfSaved({ key: "P1", path: "0_media/papers/t.pdf" }), /путь к PDF не записан/);
+  assert.equal(w.calls.length, 2);
+});

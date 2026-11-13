@@ -4,14 +4,18 @@
  * loads it too and offers window.__erDoc (what is open) and window.__erPdf (save the file into the vault). */
 (function () {
   "use strict";
-  if (window.__easyReadNotes) return;
+  if (window.__easyReadNotes && window.__easyReadNotes.open) return; // (a page element with this id is not us)
   var er = window.__easyRead, reader = window.__easyReadReader;
   if (!er || !reader) { console.error("easy-read notes: inject easy-read.js and reader.js first"); return; }
 
   var doc = document;
   var MAX_QUOTE = 2000;
   var ARTICLE_META = "meta[name=citation_doi], meta[name=citation_pmid], meta[name=citation_title]";
-  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "" };
+  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "", gen: 0 };
+  // st.gen counts documents: the viewer can open another PDF while a request is out, and a late answer
+  // for the previous document must never be applied to (or saved as) the new one
+  var viewerDoc = typeof window.__erDoc === "function" ? window.__erDoc : null;
+  var viewerPdf = window.__erPdf && typeof window.__erPdf.save === "function" ? window.__erPdf : null;
 
   var css = doc.createElement("style");
   css.textContent = [
@@ -57,7 +61,7 @@
 
   /* what is open: the viewer says it itself; a web page is described by its meta tags */
   function docInfo() {
-    if (window.__erDoc) return window.__erDoc();
+    if (viewerDoc) return viewerDoc();
     var meta = {};
     doc.querySelectorAll("meta[name]").forEach(function (m) { meta[m.name.toLowerCase()] = m.content; });
     return { url: location.href, title: doc.title, meta: meta, text: "" };
@@ -68,8 +72,8 @@
     var quote = sel && !sel.isCollapsed ? sel.toString().trim().slice(0, MAX_QUOTE) : "";
     var node = sel && sel.anchorNode;
     var block = node && (node.nodeType === 1 ? node : node.parentElement);
+    if (block && block.closest(".er-ui")) return { quote: "", page: null }; // our own panel is not the article
     block = block && block.closest("p, li, h2, h3, h4");
-    if (block && block.closest(".er-ui")) return { quote: "", page: null };
     var page = null, e = block;                              // nearest page marker above the block (PDF viewer)
     while (e && page == null) {
       e = e.previousElementSibling || (e.parentElement && e.parentElement.closest("article") ? e.parentElement : null);
@@ -124,7 +128,7 @@
       linksEl.appendChild(button("Вывод по статье", "Одна общая заметка ко всей статье", startSummary));
     } else {
       linksEl.appendChild(button("Сохранить статью в Zotero", "Сохранить статью в Zotero без заметки", function () { run("save"); }));
-      if (window.__erPdf && !docInfo().url) linksEl.appendChild(button("Привязать к статье…", "Этот файл — статья из списка чтения", choosePaper));
+      if (viewerPdf && !docInfo().url) linksEl.appendChild(button("Привязать к статье…", "Этот файл — статья из списка чтения", choosePaper));
     }
     quoteEl.hidden = !st.pending.quote || !!st.editing || st.summary;
     quoteEl.textContent = st.pending.quote + (st.pending.page ? "\nстр. " + st.pending.page : "");
@@ -165,8 +169,10 @@
   async function run(op, extra) {
     if (st.busy) return false;
     st.busy = true; saveBtn.disabled = true; say("Zotero…");
+    var gen = st.gen;
     try {
       var res = await send(op, extra);
+      if (gen !== st.gen) return false; // another document was opened meanwhile
       st.vault = res.vault || "";
       if (res.paper !== undefined) { st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl; }
       say("");
@@ -234,7 +240,7 @@
     var p = st.paper;
     if (!p) return;
     if (p.pdf) { pdfEl.textContent = "PDF ✓ " + p.pdf; return; }
-    if (window.__erPdf) {
+    if (viewerPdf) {
       if (!why) return;
       pdfEl.appendChild(doc.createTextNode(PDF_WHY[why] || "PDF не сохранён: " + why));
       if (why === "permission") pdfEl.appendChild(button("Подтвердить", "Разрешить запись в папку vault", function () { keepPdf(true); }));
@@ -250,16 +256,19 @@
   /* in the viewer: once the paper is known, the open file goes to 0_media/papers/<slug>.pdf */
   async function keepPdf(interactive) {
     var p = st.paper;
-    if (!window.__erPdf || !p || p.pdf || !p.slug) return;
+    if (!viewerPdf || !p || p.pdf || !p.slug) return;
+    var gen = st.gen, hash = docInfo().hash; // the file that is open now; its bytes are taken in this same tick
     try {
-      var res = await window.__erPdf.save(p.slug, interactive);
+      var res = await viewerPdf.save(p.slug, interactive);
+      if (gen !== st.gen) return;
       if (res.reason) { renderPdf(res.reason); return; }
-      await send("pdfSaved", { key: p.key, path: res.path, hash: docInfo().hash });
+      await send("pdfSaved", { key: p.key, path: res.path, hash: hash });
+      if (gen !== st.gen) return;
       st.paper = Object.assign({}, p, { pdf: res.path });
       renderPdf();
     } catch (e) {
       console.warn("easy-read notes: saving the PDF failed", e);
-      renderPdf(e.message);
+      if (gen === st.gen) renderPdf(e.message);
     }
   }
 
@@ -336,8 +345,10 @@
 
   /* quietly on load: highlights of earlier notes, and (viewer) the PDF into the vault */
   async function refresh() {
+    var gen = st.gen;
     try {
       var res = await send("status");
+      if (gen !== st.gen) return;
       st.vault = res.vault || "";
       st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl;
       await paint();
@@ -366,14 +377,14 @@
   /* the text is rebuilt by easy-read (bold word starts) and by the viewer: ranges must be rebuilt too */
   er.onChange(function (s) {
     noteBtn.hidden = !s.enabled;
-    if (!s.enabled) { if (!window.__erDoc) close(); if (window.CSS && CSS.highlights) CSS.highlights.delete("er-note"); return; }
+    if (!s.enabled) { if (!viewerDoc) close(); if (window.CSS && CSS.highlights) CSS.highlights.delete("er-note"); return; }
     if (st.notes.length) paint().then(function () { if (!panel.hidden) render(); });
   });
-  window.addEventListener("er-doc", function () { st.paper = null; st.notes = []; resetForm(); refresh(); });
+  window.addEventListener("er-doc", function () { st.gen++; st.paper = null; st.notes = []; resetForm(); refresh(); });
 
   doc.body.appendChild(noteBtn);
   doc.body.appendChild(panel);
   noteBtn.hidden = !er.getState().enabled;
   window.__easyReadNotes = { open: open, refresh: refresh };
-  if (window.__erDoc ? !!window.__erDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
+  if (viewerDoc ? !!viewerDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
 })();
