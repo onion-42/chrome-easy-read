@@ -13,14 +13,17 @@ export const RATES = [
 ];
 
 export const READER_DEFAULTS = {
-  engine: "gemini",                     // "gemini" | "builtin"
+  engine: "gemini",                     // "gemini" | "local" | "builtin"
+  localUrl: "http://127.0.0.1:5005",    // the Piper server started by scripts/local-voice.sh
+  localVoiceEn: "en_US-lessac-medium",
+  localVoiceRu: "ru_RU-irina-medium",
   apiKey: "",
   model: "gemini-3.8-flash-tts",
   voice: "Kore",
   style: "calm and clear",
   rate: 1,
   readCitations: false,
-  builtinOnly: "", // domains whose text never goes to Google (e.g. an employer's wiki)
+  builtinOnly: "", // domains whose text never leaves this computer (e.g. an employer's wiki)
 };
 
 export async function loadReaderOptions() {

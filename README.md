@@ -4,7 +4,8 @@ Reading comfort per site, plus reading aloud with subtitles that look the same a
 
 - **easy-read on any site:** dyslexia-friendly font (OpenDyslexic), text size, line and letter spacing,
   calm colours, colour-vision filter (red-green / blue-yellow), bold word starts, focus highlight.
-- **Read aloud:** a natural Gemini voice (or the free built-in voice) reads from the paragraph you choose.
+- **Read aloud:** a natural Gemini voice, a local neural voice (Piper, offline) or the free built-in voice
+  reads from the paragraph you choose.
   A subtitle bar shows the current sentence and marks the spoken word, in your easy-read style.
 - **Citations are not read:** `[1, 2]`, `(Smith et al., 2020)`, superscript refs, DOIs and footnote marks are
   skipped by the voice and shown small and faded. URLs are read as their domain.
@@ -20,6 +21,26 @@ Comfort and choice, not a treatment: studies of dyslexia fonts found no reliable
 2. Click **Load unpacked** and choose the **`extension`** folder of this repo.
 3. Pin the "Aa" icon (puzzle icon in the toolbar → pin).
 4. For the Gemini voice: right-click the icon → **Options** → paste your API key → **Test voice**.
+
+### Local neural voice (optional, offline)
+
+A natural voice that runs on this computer's processor (no graphics card needed). The text never leaves the machine.
+It uses [Piper](https://github.com/OHF-Voice/piper1-gpl), a small speech server on `127.0.0.1`.
+
+1. Install [uv](https://docs.astral.sh/uv/) if you do not have it.
+2. Run `bash scripts/local-voice.sh`. It downloads one English and one Russian voice (about 60 MB each) into
+   `~/.local/share/piper-voices` and starts the server as a systemd user service that comes up at login.
+3. In **Options** choose **Local neural voice** → **Test voice**.
+
+| Task | Command |
+|---|---|
+| Is it running? | `systemctl --user status easy-read-voice` |
+| Start / stop | `systemctl --user start easy-read-voice` / `systemctl --user stop easy-read-voice` |
+| Remove | `systemctl --user disable --now easy-read-voice`, then delete `~/.config/systemd/user/easy-read-voice.service` |
+| Another voice | `uvx --from 'piper-tts[http]' python -m piper.download_voices <name> --data-dir ~/.local/share/piper-voices`, then put the name in Options |
+
+macOS and Windows have no systemd. Download the voices with the command in the last row, then start the server by hand:
+`uvx --from 'piper-tts[http]' python -m piper.http_server -m en_US-lessac-medium --data-dir ~/.local/share/piper-voices --host 127.0.0.1 --port 5005`.
 
 ## Use
 
@@ -74,6 +95,8 @@ address. A page with none of these is saved as a web page item.
 - With the Gemini voice, the text being read is sent to Google. Sites listed under
   **"Built-in voice only"** in Options (empty by default; add a work wiki, mail, etc.) always use the built-in voice.
 - The built-in voice works offline; nothing leaves the computer.
+- The local neural voice sends the text only to the Piper server on `127.0.0.1`, so it also reads the
+  "Built-in voice only" sites.
 - PDFs are read on this computer. Only **Clean up with Gemini** sends the whole PDF to Google (model
   `gemini-3.8-flash`, about a few cents per paper); it is switched off for the "Built-in voice only" sites.
 
@@ -103,8 +126,9 @@ easy-read.js    the reading-comfort layer (from the skill) + public API: setEnab
 text.js         pure: citation filter, sentence chunks (Intl.Segmenter), word-time estimate
 reader.js       in the page: start point, paragraph highlight, subtitle bar, controls
 tts/gemini.js   Gemini TTS request (24 kHz PCM) with plain-language errors
+tts/local.js    local Piper server request (WAV -> PCM) with plain-language errors
 tts/builtin.js  chrome.tts voices with word events
-offscreen.js    plays Gemini audio outside the page (no page CSP, speed keeps the pitch)
+offscreen.js    plays Gemini and local audio outside the page (no page CSP, speed keeps the pitch)
 options.*       voice settings
 viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", Gemini clean-up
 pdf-text.js     pure: PDF text items -> paragraphs / headings (columns, hyphens, running headers, line numbers)
@@ -123,7 +147,7 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - After a Chrome restart the vault folder needs one click to confirm access; notes are saved to Zotero regardless.
 - Deleting a note is done in Zotero.
 
-- Gemini returns no word timings, so the marked word is an estimate; the sentence is exact.
+- Gemini and the local voice return no word timings, so the marked word is an estimate; the sentence is exact.
 - Pause stops on the marked word; resume and a new speed continue from that word. The built-in voice gets
   the rest of the sentence (word-exact); Gemini replays the same audio from the word's estimated start, so it
   can begin a fraction of a second early or late. A built-in voice that reports no words resumes from the

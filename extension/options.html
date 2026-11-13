@@ -56,6 +56,9 @@
       <label class="choice"><input type="radio" name="engine" value="gemini">
         <span>Gemini voice: natural, Russian and English. Needs your API key and internet.
           <span class="hint">The word highlight is estimated from timing; the sentence is exact.</span></span></label>
+      <label class="choice"><input type="radio" name="engine" value="local">
+        <span>Local neural voice: natural, offline, nothing leaves this computer. Needs the local voice service.
+          <span class="hint">Russian and English. Install it once with <code>scripts/local-voice.sh</code> (see the README).</span></span></label>
       <label class="choice"><input type="radio" name="engine" value="builtin">
         <span>Built-in voice: free, offline, nothing leaves this computer.
           <span class="hint">Sounds more robotic. Highlights the exact word when the voice supports it.</span></span></label>
@@ -90,6 +93,21 @@
     </fieldset>
 
     <fieldset>
+      <legend>Local voice</legend>
+      <label>Server address
+        <input type="text" name="localUrl" spellcheck="false" placeholder="http://127.0.0.1:5005">
+        <span class="hint">The Piper server on this computer. The text being read stays here.</span>
+      </label>
+      <label>English voice
+        <input type="text" name="localVoiceEn" spellcheck="false">
+      </label>
+      <label>Russian voice
+        <input type="text" name="localVoiceRu" spellcheck="false">
+        <span class="hint">Voice names as Piper knows them, for example <code>ru_RU-irina-medium</code>. A new voice has to be downloaded first.</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
       <legend>Reading</legend>
       <label>Speed
         <span class="row"><input type="range" name="rate" id="rate" min="0" step="1" aria-label="Speed" style="flex:1;accent-color:var(--accent)">
@@ -101,7 +119,7 @@
           <span class="hint">Off: they are skipped by the voice and shown small and faded in the subtitles.</span></span></label>
       <label>Built-in voice only on these sites
         <textarea name="builtinOnly" spellcheck="false"></textarea>
-        <span class="hint">One domain per line; subdomains count too. Text from these sites never goes to Gemini.</span>
+        <span class="hint">One domain per line; subdomains count too. Text from these sites never leaves this computer: no Gemini, Claude or DeepSeek.</span>
       </label>
     </fieldset>
 

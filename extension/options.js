@@ -2,6 +2,7 @@
 import { loadReaderOptions, saveReaderOptions, READER_DEFAULTS, RATES } from "./reader-options.js";
 
 const SAVE_DELAY_MS = 300;
+const ENGINES = ["gemini", "local", "builtin"];
 const form = document.getElementById("options");
 
 const rateOut = document.getElementById("rate-value");
@@ -22,6 +23,9 @@ function say(text, isError = false) {
 
 function fill(o) {
   form.engine.value = o.engine;
+  form.localUrl.value = o.localUrl;
+  form.localVoiceEn.value = o.localVoiceEn;
+  form.localVoiceRu.value = o.localVoiceRu;
   form.apiKey.value = o.apiKey;
   form.model.value = o.model;
   form.voice.value = o.voice;
@@ -34,7 +38,10 @@ function fill(o) {
 
 function read() {
   return {
-    engine: form.engine.value === "builtin" ? "builtin" : "gemini",
+    engine: ENGINES.includes(form.engine.value) ? form.engine.value : READER_DEFAULTS.engine,
+    localUrl: form.localUrl.value.trim() || READER_DEFAULTS.localUrl,
+    localVoiceEn: form.localVoiceEn.value.trim() || READER_DEFAULTS.localVoiceEn,
+    localVoiceRu: form.localVoiceRu.value.trim() || READER_DEFAULTS.localVoiceRu,
     apiKey: form.apiKey.value.trim(),
     model: form.model.value,
     voice: form.voice.value.trim() || READER_DEFAULTS.voice,

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { RATES } from "../extension/reader-options.js";
+import { RATES, READER_DEFAULTS } from "../extension/reader-options.js";
 
 test("speeds run from 0.75x to 10x and keep the usual round values", () => {
   assert.equal(RATES[0], 0.75);
@@ -18,4 +18,10 @@ test("the speed slider is log-like: slow speeds change in small steps, fast spee
     const growth = r / RATES[i];
     assert.ok(growth > 1.03 && growth < 1.2, `${RATES[i]}x -> ${r}x is not a gentle step`);
   });
+});
+
+test("the local voice defaults point at this computer and one voice per language", () => {
+  assert.equal(new URL(READER_DEFAULTS.localUrl).hostname, "127.0.0.1");
+  assert.match(READER_DEFAULTS.localVoiceEn, /^en_/);
+  assert.match(READER_DEFAULTS.localVoiceRu, /^ru_/);
 });

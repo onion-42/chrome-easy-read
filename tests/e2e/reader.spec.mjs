@@ -15,6 +15,7 @@ async function fakeVoices(sw, { autoEnd }) {
     };
     self.easyRead.engines.builtin = fake("builtin");
     self.easyRead.engines.gemini = fake("gemini");
+    self.easyRead.engines.local = fake("local");
   }, autoEnd);
 }
 
@@ -119,6 +120,13 @@ test("work domains always get the built-in voice", async ({ context, sw, server 
   await sw.evaluate(() => chrome.storage.local.set({ reader: { engine: "gemini", builtinOnly: "" } }));
   await startReading(sw, url);
   await expect.poll(async () => (await spoken(sw)).at(-1)?.engine).toBe("gemini");
+});
+
+test("the local voice reads everywhere, work domains included: its text stays on this computer", async ({ context, sw, server }) => {
+  const { url } = await setup(context, sw, server, { engine: "local", builtinOnly: "127.0.0.1" });
+  await fakeVoices(sw, { autoEnd: false });
+  await startReading(sw, url);
+  await expect.poll(async () => (await spoken(sw))[0]?.engine).toBe("local");
 });
 
 test("start point: right-clicked paragraph, then selection; easy-read turns on for this tab only", async ({ context, sw, server }) => {

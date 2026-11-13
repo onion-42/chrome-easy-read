@@ -3,6 +3,7 @@ import { siteKey, storageKey, tabPatterns, LOCAL_FILES, matchesDomain, parseDoma
 import { loadReaderOptions, saveReaderOptions, RATES } from "./reader-options.js";
 import { prepareHost } from "./host.js";
 import { synthesize } from "./tts/gemini.js";
+import { synthesizeLocal } from "./tts/local.js";
 import { speakBuiltin, detectLang } from "./tts/builtin.js";
 import { zotero } from "./zotero.js";
 
@@ -183,25 +184,33 @@ async function readerCommand(tab, type, fromContext = false) {
 }
 
 /* "built-in voice only" is checked against the page's site; for the viewer, the PDF's own site */
-function engineFor(opts, tab) {
+function isWorkSite(opts, tab) {
   const host = siteKey(isViewer(tab.url) ? sourceOf(tab.url) : tab.url);
-  const workSite = host && matchesDomain(host, parseDomains(opts.builtinOnly));
-  return opts.engine === "gemini" && !workSite ? "gemini" : "builtin";
+  return Boolean(host && matchesDomain(host, parseDomains(opts.builtinOnly)));
 }
 
-let latestSpeech = null; // id of the newest speak request; late Gemini replies for older ones are dropped
+/* Gemini sends text to Google, so work sites fall back to the built-in voice; the local voice stays local */
+function engineFor(opts, tab) {
+  if (opts.engine === "local") return "local";
+  return opts.engine === "gemini" && !isWorkSite(opts, tab) ? "gemini" : "builtin";
+}
+
+let latestSpeech = null; // id of the newest speak request; late audio for older ones is dropped
 const audioCache = new Map();
 
-function cachedSynth(text, opts) {
-  const key = [opts.model, opts.voice, opts.style, text].join("\u0000");
+/* key: everything that changes the sound; make: the engine's synth call, run once per key */
+function cachedSynth(key, make) {
   if (!audioCache.has(key)) {
-    const audio = synthesize(text, opts);
+    const audio = make();
     audio.catch(() => audioCache.delete(key)); // failures are reported by the caller, never cached
     audioCache.set(key, audio);
     if (audioCache.size > AUDIO_CACHE_SIZE) audioCache.delete(audioCache.keys().next().value);
   }
   return audioCache.get(key);
 }
+const geminiAudio = (text, o) => cachedSynth(["gemini", o.model, o.voice, o.style, text].join("\u0000"), () => synthesize(text, o));
+const localAudio = (text, lang, o) =>
+  cachedSynth(["local", o.localUrl, o.localVoiceEn, o.localVoiceRu, lang, text].join("\u0000"), () => synthesizeLocal(text, lang, o));
 
 async function ensureOffscreen() {
   if (await chrome.offscreen.hasDocument()) return;
@@ -235,8 +244,16 @@ const engines = {
   },
   async gemini(msg, tab) {
     chrome.tts.stop();
-    const audio = cachedSynth(msg.text, msg.opts);
-    (msg.next ?? []).forEach((text) => cachedSynth(text, msg.opts)); // prefetch while this one plays
+    const audio = geminiAudio(msg.text, msg.opts);
+    (msg.next ?? []).forEach((text) => geminiAudio(text, msg.opts)); // prefetch while this one plays
+    const result = await audio;
+    if (latestSpeech === msg.id) await playInOffscreen(msg.id, tab.id, result, msg.rate, msg.startMs);
+  },
+  async local(msg, tab) {
+    chrome.tts.stop();
+    const lang = msg.lang || (await detectLang(msg.text));
+    const audio = localAudio(msg.text, lang, msg.opts);
+    (msg.next ?? []).forEach((text) => localAudio(text, lang, msg.opts)); // prefetch while this one plays
     const result = await audio;
     if (latestSpeech === msg.id) await playInOffscreen(msg.id, tab.id, result, msg.rate, msg.startMs);
   },
@@ -247,7 +264,7 @@ async function speak(msg, tab) {
   const opts = await loadReaderOptions();
   const engine = engineFor(opts, tab);
   // a built-in voice continues from a word by getting the rest of the text; its word positions are
-  // shifted back onto the whole sentence. Gemini replays the same audio from msg.startMs instead.
+  // shifted back onto the whole sentence. Gemini and the local voice replay the same audio from msg.startMs instead.
   const from = engine === "builtin" ? msg.startChar || 0 : 0;
   const send = (ev) => {
     const shifted = ev.event === "word" ? { ...ev, charIndex: ev.charIndex + from } : ev;
@@ -281,7 +298,8 @@ async function testVoice() {
     speakBuiltin(TEST_PHRASE, { lang: "en", rate: opts.rate }, () => {});
     return;
   }
-  await playInOffscreen("test", null, await synthesize(TEST_PHRASE, opts), opts.rate);
+  const audio = opts.engine === "local" ? synthesizeLocal(TEST_PHRASE, "en", opts) : synthesize(TEST_PHRASE, opts);
+  await playInOffscreen("test", null, await audio, opts.rate);
 }
 
 async function relayAudioEvent(msg) {

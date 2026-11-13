@@ -1,5 +1,6 @@
 // Gemini clean-up for PDFs: the whole PDF in, clean Markdown out, then plain blocks for the viewer.
 import { NO_KEY, interactionRequest, send, modelOutputs } from "./gemini-api.js";
+import { bytesToBase64 } from "./wav.js";
 
 export const CLEAN_MODEL = "gemini-3.8-flash";
 export const MAX_PDF_BYTES = 20 * 1024 * 1024; // inline requests; bigger files would need the Files API
@@ -23,18 +24,11 @@ export function buildCleanRequest(pdfBase64, apiKey) {
   }, apiKey);
 }
 
-function toBase64(bytes) {
-  const CHUNK = 0x8000; // String.fromCharCode has an argument limit
-  let s = "";
-  for (let i = 0; i < bytes.length; i += CHUNK) s += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  return btoa(s);
-}
-
 /** PDF bytes -> clean Markdown. Throws an Error with a message fit for the user. */
 export async function cleanPdf(bytes, apiKey, fetchFn = fetch) {
   if (!apiKey) throw new Error(NO_KEY);
   if (bytes.length > MAX_PDF_BYTES) throw new Error("This PDF is too big for the Gemini clean-up (20 MB at most).");
-  const body = await send(buildCleanRequest(toBase64(bytes), apiKey), fetchFn);
+  const body = await send(buildCleanRequest(bytesToBase64(bytes), apiKey), fetchFn);
   const md = modelOutputs(body, "text").map((c) => c.text).join("").trim();
   if (!md) throw new Error("Gemini returned no text for this PDF.");
   return md;
