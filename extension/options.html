@@ -40,7 +40,7 @@
     :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
     .note { border-left: 4px solid var(--accent); padding: 4px 0 4px 14px; color: var(--soft); margin: 0; }
     #status { min-height: 1.6em; margin: 0; font-weight: 600; }
-    #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+    #status.ok, #z-status.ok { color: var(--ok); } #status.bad, #z-status.bad { color: var(--bad); }
     a { color: var(--accent); }
   </style>
 </head>
@@ -110,8 +110,30 @@
       <p id="status" role="status"></p>
     </div>
   </form>
+
+  <fieldset id="zotero">
+    <legend>Zotero · заметки и список чтения</legend>
+    <label>Ключ Zotero API
+      <span class="row"><input class="key" type="password" id="z-key" spellcheck="false" autocomplete="off">
+        <button type="button" id="z-check">Проверить</button></span>
+      <span class="hint">Хранится только в этом профиле Chrome. Создать: <a href="https://www.zotero.org/settings/keys" target="_blank" rel="noreferrer">zotero.org/settings/keys</a>
+        (права: library, notes, write).</span>
+    </label>
+    <label>Коллекция для новых статей и списка чтения
+      <select id="z-collection" disabled></select>
+      <span class="hint">Вложенные коллекции показываются в списке чтения отдельными группами.</span>
+    </label>
+    <div class="row">
+      <button type="button" id="z-vault">Папка vault для PDF…</button>
+      <span id="z-vault-state" class="hint"></span>
+    </div>
+    <p class="hint">PDF сохраняются в <code>0_media/papers/</code> внутри выбранной папки. Другие файлы vault easy-read не читает и не меняет.</p>
+    <p id="z-status" role="status"></p>
+    <p><a href="reading.html">Открыть список чтения</a> (Alt+Shift+L)</p>
+  </fieldset>
   <p class="hint">Shortcuts can be changed at chrome://extensions/shortcuts.</p>
 </main>
 <script type="module" src="options.js"></script>
+<script type="module" src="options-zotero.js"></script>
 </body>
 </html>

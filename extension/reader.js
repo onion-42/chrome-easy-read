@@ -6,7 +6,7 @@
   if (window.__easyReadReader) return;
   var er = window.__easyRead, T = globalThis.erText;
   if (!er || !T) { console.error("easy-read reader: inject easy-read.js and text.js first"); return; }
-  window.__easyReadReader = true;
+  window.__easyReadReader = { blocks: function () { return readableBlocks(); } }; // notes.js highlights in the same blocks
 
   var doc = document;
   var BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, dd, dt, td, th, blockquote, figcaption";

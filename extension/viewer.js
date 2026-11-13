@@ -6,10 +6,12 @@ import { cleanPdf, markdownToBlocks } from "./pdf-clean.js";
 import { loadReaderOptions } from "./reader-options.js";
 import { siteKey, matchesDomain, parseDomains } from "./site.js";
 import { prepareHost } from "./host.js";
+import { getVault, permission, keepPdf, openPdf as openVaultPdf } from "./vault-pdf.js";
 
 const PROFILE_KEY = "settings";
 const SAVE_DELAY_MS = 400;
-const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js"];
+const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js"];
+const ID_TEXT = 4000;      // characters of the first page searched for a DOI
 const CACHE_KEY = "pdfClean";
 const CACHE_SIZE = 10;     // cleaned PDFs kept, so reopening one costs nothing
 const MIN_TEXT = 40;       // fewer characters than this in the whole PDF: it is a scan
@@ -32,6 +34,17 @@ const state = { task: null, doc: null, bytes: null, hash: null, source: null, lo
 
 // the tests swap `clean` for a fake; everything else calls it through here
 window.easyReadViewer = { clean: (bytes, apiKey) => cleanPdf(bytes, apiKey) };
+
+// for notes.js: what is open (so Zotero can recognise the paper), and "keep this file in the vault"
+window.__erDoc = () => ({
+  url: state.source?.url || "",
+  title: state.source?.name || "",
+  hash: state.hash,
+  text: state.local.map((b) => b.text || "").join("\n").slice(0, ID_TEXT),
+  meta: {},
+  isPdf: true,
+});
+window.__erPdf = { save: (slug, interactive) => keepPdf(slug, state.bytes, { interactive }) };
 
 function setState(s) { document.body.dataset.state = s; }
 function status(text) { $("status").textContent = text; }
@@ -181,6 +194,7 @@ async function openPdf(bytes, source) {
     showSource();
     show(state.local);
     await setLanguage();
+    await announceDoc();
     status(textLength(state.local) < MIN_TEXT ? "This PDF has no text layer (it is a scan). “Clean up with Gemini” can read it." : "");
     setState("ready");
   } catch (e) {
@@ -213,6 +227,42 @@ async function openUrl(url) {
   }
   const name = decodeURIComponent(new URL(url).pathname.split("/").pop() || "PDF");
   await openPdf(new Uint8Array(await res.arrayBuffer()), { url, name });
+}
+
+/* a PDF kept in the vault (0_media/papers/…), opened from the reading list */
+async function openFromVault(path) {
+  setState("loading");
+  const dir = await getVault();
+  if (!dir) {
+    status("Папка vault не выбрана. Выбери её в настройках easy-read.");
+    setState("error");
+    return;
+  }
+  if ((await permission(dir)) !== "granted") {
+    status("Нужен доступ к папке vault: нажми в любом месте страницы.");
+    setState("error");
+    document.addEventListener("click", async () => {
+      if ((await permission(dir, true)) === "granted") await openFromVault(path);
+    }, { once: true });
+    return;
+  }
+  const file = await openVaultPdf(dir, path);
+  if (!file) {
+    status(`В vault нет файла ${path}.`);
+    setState("error");
+    return;
+  }
+  await openFile(file);
+}
+
+/* notes.js reloads its state for the new document; a PDF opened for a known paper is tied to it first */
+async function announceDoc() {
+  const key = new URLSearchParams(location.search).get("attach");
+  if (key) {
+    const res = await chrome.runtime.sendMessage({ type: "zotero", op: "attach", key, doc: window.__erDoc() });
+    if (!res?.ok) console.warn("easy-read viewer: could not tie the PDF to its paper", res?.message);
+  }
+  window.dispatchEvent(new Event("er-doc"));
 }
 
 async function openFile(file) {
@@ -298,8 +348,9 @@ document.addEventListener("drop", (e) => {
 });
 
 await loadEasyRead();
-const file = new URLSearchParams(location.search).get("file");
-if (file) await openUrl(file);
+const params = new URLSearchParams(location.search);
+if (params.get("file")) await openUrl(params.get("file"));
+else if (params.get("vault")) await openFromVault(params.get("vault"));
 else {
   $("title").textContent = "Open a PDF";
   article.append(el("p", "Choose a PDF with “Open a PDF…” above, or drag one onto this page."));

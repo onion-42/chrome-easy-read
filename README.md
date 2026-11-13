@@ -44,6 +44,30 @@ in `chrome://extensions`; "Open a PDF…" works without it.
 The site is remembered: next visit, easy-read turns on by itself. Reading aloud on a site that is off turns
 easy-read on for that tab only. Shortcuts can be changed at `chrome://extensions/shortcuts`.
 
+## Notes, Zotero and the reading list
+
+One paper is one Zotero item. easy-read saves papers and notes to Zotero; the Obsidian vault gets them through
+the plan-browser extension (or `node ~/.claude/skills/zotero-link/cli.mjs sync`).
+
+Set up once in the options page, section **Zotero**: paste the API key (zotero.org/settings/keys, rights
+library + notes + write), press «Проверить», pick the collection (default `Reading list`), and choose the vault
+folder for PDFs.
+
+| Action | How |
+|---|---|
+| Note on selected text | select text, **Alt+Shift+N** (or 📝, or right-click → «Заметка к выделению») → comment → **Ctrl+Enter** |
+| Save the paper without a note | right-click → «Сохранить статью в Zotero», or the button in the panel |
+| Edit a note | ✎ in the list; if the note changed in Zotero meanwhile, both texts are shown and yours stays in the field |
+| Summary of the whole paper | «Вывод по статье»: one per paper, first in the list (Zotero tag `summary`) |
+| See earlier notes | quotes are highlighted in the text; click a highlight to open its note |
+| Reading list | **Alt+Shift+L**, or the link in the viewer / options |
+| Keep the PDF | in the PDF viewer the file is written to `0_media/papers/<slug>.pdf` of the vault once the paper is known; on an article page press «Сохранить PDF» |
+| Your own PDF (e.g. from the author) | reading list → «Прикрепить PDF…» (or drop the file on the row); or open the file in the viewer → 📝 → «Привязать к статье…» |
+
+Works on PDFs (viewer) and on HTML article pages. A page is recognised by `citation_doi` / `citation_pmid`
+meta tags, a DOI in the address, or a PubMed address; a PDF by its content hash, a DOI on its first page, or its
+address. A page with none of these is saved as a web page item.
+
 ## Privacy
 
 - Settings (look) sync through your Chrome profile. The Gemini API key stays in this Chrome only.
@@ -91,6 +115,13 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 ```
 
 ## Known limits
+
+- Notes: a quote taken in the HTML version may not be highlighted in the PDF version of the same paper (and the
+  reverse), and not after a Gemini clean-up: the text differs. The note itself is always in the list.
+- Notes with images, tables or Zotero's own highlights cannot be edited here.
+- A PDF of 95 MB or more is not written to the vault (GitHub rejects files of 100 MB).
+- After a Chrome restart the vault folder needs one click to confirm access; notes are saved to Zotero regardless.
+- Deleting a note is done in Zotero.
 
 - Gemini returns no word timings, so the marked word is an estimate; the sentence is exact.
 - Pause stops on the marked word; resume and a new speed continue from that word. The built-in voice gets

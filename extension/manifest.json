@@ -1,33 +1,91 @@
 {
   "manifest_version": 3,
   "name": "easy-read",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Reading comfort per site (dyslexia-friendly font, spacing, calm colours, colour vision) + read aloud with easy-read subtitles.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "scripting", "offscreen", "tts", "contextMenus", "tabs"],
-  "host_permissions": ["<all_urls>"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": [
+    "storage",
+    "scripting",
+    "offscreen",
+    "tts",
+    "contextMenus",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "easy-read: on / off for this site (Alt+Shift+E)",
-    "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png" }
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
   },
-  "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
-  "options_ui": { "page": "options.html", "open_in_tab": true },
-  "content_security_policy": { "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';" },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self';"
+  },
   "commands": {
     "_execute_action": {
-      "suggested_key": { "default": "Alt+Shift+E" },
+      "suggested_key": {
+        "default": "Alt+Shift+E"
+      },
       "description": "Turn easy-read on / off for this site"
     },
     "read-aloud": {
-      "suggested_key": { "default": "Alt+Shift+R" },
+      "suggested_key": {
+        "default": "Alt+Shift+R"
+      },
       "description": "Read aloud: start / pause / resume"
+    },
+    "add-note": {
+      "suggested_key": {
+        "default": "Alt+Shift+N"
+      },
+      "description": "Notes on this article: note on the selected text (Zotero)"
+    },
+    "reading-list": {
+      "suggested_key": {
+        "default": "Alt+Shift+L"
+      },
+      "description": "Open the reading list"
     }
   },
   "content_scripts": [
-    { "matches": ["<all_urls>"], "js": ["context-target.js"], "run_at": "document_start" }
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "context-target.js"
+      ],
+      "run_at": "document_start"
+    }
   ],
   "web_accessible_resources": [
-    { "resources": ["fonts/*.woff2"], "matches": ["<all_urls>"] }
+    {
+      "resources": [
+        "fonts/*.woff2",
+        "papers.js"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
   ]
 }

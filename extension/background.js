@@ -4,6 +4,7 @@ import { loadReaderOptions, saveReaderOptions, RATES } from "./reader-options.js
 import { prepareHost } from "./host.js";
 import { synthesize } from "./tts/gemini.js";
 import { speakBuiltin, detectLang } from "./tts/builtin.js";
+import { zotero } from "./zotero.js";
 
 const PROFILE_KEY = "settings";
 const SAVE_DELAY_MS = 400; // sliders fire many events; chrome.storage.sync allows ~120 writes/min
@@ -11,8 +12,12 @@ const BADGE = { on: "ON", unavailable: "–", pdf: "PDF" };
 const TITLE = "easy-read: on / off for this site (Alt+Shift+E)";
 const READ_MENU = "er-read-from-here";
 const PDF_MENU = "er-open-pdf";
+const NOTE_MENU = "er-add-note";
+const SAVE_MENU = "er-save-paper";
+const LIST_MENU = "er-reading-list";
+const READING_LIST = chrome.runtime.getURL("reading.html");
 const PDF_LINKS = ["*://*/*.pdf", "*://*/*.pdf?*", "*://*/*.PDF", "*://arxiv.org/pdf/*", "file:///*.pdf"];
-const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js"];
+const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js"];
 const AUDIO_CACHE_SIZE = 24;
 const TEST_PHRASE = "Hello! This is your reading voice.";
 const VIEWER = chrome.runtime.getURL("viewer.html");
@@ -46,8 +51,16 @@ async function isPdfTab(tab) {
 }
 
 /** Right-click "Open PDF in easy-read": the viewer in a new tab next to this one. */
-async function openPdf(url, tab) {
-  await chrome.tabs.create({ url: viewerFor(url), index: tab ? tab.index + 1 : undefined, openerTabId: tab?.id });
+async function openPdf(url, tab, paperKey = null) {
+  const target = viewerFor(url) + (paperKey ? `&attach=${encodeURIComponent(paperKey)}` : "");
+  await chrome.tabs.create({ url: target, index: tab ? tab.index + 1 : undefined, openerTabId: tab?.id });
+}
+
+/** One reading-list tab: focus it when it is already open. */
+async function openReadingList() {
+  const [open] = await chrome.tabs.query({ url: READING_LIST });
+  if (open) await chrome.tabs.update(open.id, { active: true });
+  else await chrome.tabs.create({ url: READING_LIST });
 }
 
 /* messages to the reader: content scripts get tabs.sendMessage; the viewer is an extension page, so it gets
@@ -286,6 +299,13 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   } else if (msg.type === "reader-options") {
     loadReaderOptions().then((o) => respond({ rate: o.rate, readCitations: o.readCitations, rates: RATES }));
     return true;
+  } else if (msg.type === "zotero") {
+    zotero(msg).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
+    return true;
+  } else if (msg.type === "open-pdf") {
+    openPdf(msg.url, sender.tab, msg.key).catch((e) => console.error("easy-read: open PDF failed", e));
+  } else if (msg.type === "open-options") {
+    chrome.runtime.openOptionsPage();
   } else if (msg.type === "test-voice") {
     testVoice().then(() => respond({ ok: true }), (e) => respond({ ok: false, message: e.message }));
     return true;
@@ -300,17 +320,25 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "read-aloud") readerCommand(tab, "reader-toggle");
+  else if (command === "add-note") readerCommand(tab, "notes-open");
+  else if (command === "reading-list") openReadingList().catch((e) => console.error("easy-read: reading list failed", e));
 });
 
 chrome.runtime.onInstalled.addListener(async () => {
   await chrome.contextMenus.removeAll();
   chrome.contextMenus.create({ id: READ_MENU, title: "Read aloud from here", contexts: ["page", "selection", "link"] });
   chrome.contextMenus.create({ id: PDF_MENU, title: "Open PDF in easy-read", contexts: ["link"], targetUrlPatterns: PDF_LINKS });
+  chrome.contextMenus.create({ id: NOTE_MENU, title: "Заметка к выделению (Zotero)", contexts: ["selection"] });
+  chrome.contextMenus.create({ id: SAVE_MENU, title: "Сохранить статью в Zotero", contexts: ["page"] });
+  chrome.contextMenus.create({ id: LIST_MENU, title: "Reading list", contexts: ["action"] });
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === READ_MENU) readerCommand(tab, "reader-start", true);
   else if (info.menuItemId === PDF_MENU) openPdf(info.linkUrl, tab).catch((e) => console.error("easy-read: open PDF failed", e));
+  else if (info.menuItemId === NOTE_MENU) readerCommand(tab, "notes-open");
+  else if (info.menuItemId === SAVE_MENU) readerCommand(tab, "notes-save");
+  else if (info.menuItemId === LIST_MENU) openReadingList().catch((e) => console.error("easy-read: reading list failed", e));
 });
 
 chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
@@ -323,5 +351,6 @@ self.easyRead = {
   toggleSite,
   openPdf,
   startReading: (tab, fromContext) => readerCommand(tab, "reader-start", fromContext),
+  openNotes: (tab) => readerCommand(tab, "notes-open"),
   engines,
 };

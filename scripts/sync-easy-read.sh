@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
-# Copy easy-read.js from the easy-read skill (single source of truth) into the extension.
+# Copy the shared files from their skills (single source of truth) into the extension.
 set -euo pipefail
-SRC="${EASY_READ_SKILL:-$HOME/.claude/skills/easy-read}/easy-read.js"
-DEST="$(cd "$(dirname "$0")/.." && pwd)/extension/easy-read.js"
-if [ ! -f "$SRC" ]; then
-  echo "easy-read skill not found: $SRC (set EASY_READ_SKILL)" >&2
-  exit 1
-fi
-cp "$SRC" "$DEST"
-echo "copied $SRC -> $DEST"
+SKILLS="${CLAUDE_SKILLS:-$HOME/.claude/skills}"
+DEST="$(cd "$(dirname "$0")/.." && pwd)/extension"
+copy() {
+  if [ ! -f "$1" ]; then
+    echo "missing: $1 (set CLAUDE_SKILLS)" >&2
+    exit 1
+  fi
+  cp "$1" "$2"
+  echo "copied $1 -> $2"
+}
+copy "${EASY_READ_SKILL:-$SKILLS/easy-read}/easy-read.js" "$DEST/easy-read.js"
+for f in zotero-api.js papers.js; do
+  copy "$SKILLS/zotero-link/$f" "$DEST/$f"
+done
