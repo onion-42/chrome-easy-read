@@ -26,7 +26,7 @@
   var askBtn = button("Спросить Claude", "Задать вопрос по тексту статьи (Ctrl+Enter)", ask);
   var trBtn = button("Перевести выделенное", "Перевести выделенный текст (DeepSeek)", translate);
   var keepBtn = button("В заметку", "Положить последний ответ в поле заметки", function () { if (st.last) notes.fill(st.last); });
-  var resetBtn = button("Новый разговор", "Забыть предыдущие вопросы", function () { reset(); });
+  var resetBtn = button("Новый разговор", "Забыть предыдущие вопросы", function () { st.gen++; reset(); }); // gen: an answer still on its way is dropped
   var statusEl = el("div", { class: "er-n-soft", role: "status" }); // not .er-n-msg: that one is the note form's message
   statusEl.style.minHeight = "1.2em";
   var logEl = el("div");
@@ -124,7 +124,11 @@
     // stop here: the panel's own Ctrl+Enter saves the note
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); e.stopPropagation(); ask(); }
   });
-  window.addEventListener("er-doc", function () { st.gen++; reset(); loadLocalOnly(); });
+  window.addEventListener("er-doc", function () {
+    st.gen++; reset();
+    keepLocal.checked = true; sync(); // nothing is sent for the new document until its own setting is read
+    loadLocalOnly();
+  });
 
   keepBtn.hidden = true;
   loadLocalOnly();

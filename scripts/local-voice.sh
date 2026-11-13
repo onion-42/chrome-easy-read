@@ -15,7 +15,7 @@ cat > "$UNIT" <<EOF
 Description=easy-read local voice (Piper)
 
 [Service]
-ExecStart=$(command -v uvx) --from piper-tts[http] python -m piper.http_server -m ${VOICES[0]} --data-dir $VOICES_DIR --host 127.0.0.1 --port $PORT
+ExecStart="$(command -v uvx)" --from piper-tts[http] python -m piper.http_server -m ${VOICES[0]} --data-dir "$VOICES_DIR" --host 127.0.0.1 --port $PORT
 Restart=on-failure
 
 [Install]

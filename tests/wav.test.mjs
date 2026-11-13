@@ -48,6 +48,9 @@ test("wavToPcm refuses bytes that are not a 16-bit PCM WAV file", () => {
   assert.throws(() => wavToPcm(new Uint8Array(64)), /Not a WAV file/);
   assert.throws(() => wavToPcm(pcmToWav(new Uint8Array(4), 22050, 1, 8)), /16-bit PCM/);
   assert.throws(() => wavToPcm(pcmToWav(new Uint8Array(4), 22050).slice(0, 36)), /no audio data/);
+  const wav = pcmToWav(new Uint8Array(4), 22050);
+  const dataFirst = new Uint8Array([...wav.slice(0, 12), ...wav.slice(36), ...wav.slice(12, 36)]);
+  assert.throws(() => wavToPcm(dataFirst), /no format/);
 });
 
 test("bytesToBase64 is the reverse of base64ToBytes, also past one chunk", () => {

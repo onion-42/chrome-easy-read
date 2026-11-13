@@ -36,6 +36,7 @@ export function wavToPcm(bytes) {
       if (view.getUint16(at + 8, true) !== 1 || view.getUint16(at + 22, true) !== 16) throw new Error("Only 16-bit PCM WAV is supported.");
       sampleRate = view.getUint32(at + 12, true);
     } else if (tag(at) === "data") {
+      if (!sampleRate) throw new Error("The WAV file has no format before its audio data.");
       return { pcm: bytes.subarray(at + 8, Math.min(at + 8 + size, bytes.length)), sampleRate };
     }
     at += 8 + size + (size % 2);
