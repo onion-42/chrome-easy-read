@@ -136,3 +136,27 @@ test("review: pdfSaved retries once when the item changed in Zotero, then report
   await assert.rejects(w.ops.pdfSaved({ key: "P1", path: "0_media/papers/t.pdf" }), /путь к PDF не записан/);
   assert.equal(w.calls.length, 2);
 });
+
+test("remove takes the paper out of every collection of the reading list and leaves the others", async () => {
+  const lin = { ...LIN, data: { ...LIN.data, collections: ["SUB", "ROOT", "ELSEWHERE"] } };
+  const w = world({ items: [lin] });
+  await w.ops.remove({ key: lin.key });
+  assert.deepEqual(w.calls, [{ op: "patch", key: lin.key, fields: { collections: ["ELSEWHERE"] }, ifVersion: 3 }]);
+
+  const out = world({ items: [{ ...LIN, data: { ...LIN.data, collections: ["ELSEWHERE"] } }] });
+  await out.ops.remove({ key: LIN.key });
+  assert.deepEqual(out.calls, []); // already out of the list: nothing is sent
+});
+
+test("remove retries once when the item changed in Zotero, then reports the failure", async () => {
+  const w = world({ items: [{ ...LIN, version: 999, data: { ...LIN.data, collections: ["SUB"] } }] });
+  await assert.rejects(w.ops.remove({ key: LIN.key }), /статья не убрана/);
+  assert.equal(w.calls.length, 2);
+});
+
+test("remove refuses when the reading-list collection is not found, instead of reporting success", async () => {
+  const w = world({ items: [{ ...LIN, data: { ...LIN.data, collections: ["SUB"] } }] });
+  const ops = (await import("../extension/zotero.js")).makeOps({ zot: { collections: async () => [], item: async () => LIN }, cache: null, collection: "GONE" });
+  await assert.rejects(ops.remove({ key: LIN.key }), /Коллекция Zotero не найдена/);
+  assert.deepEqual(w.calls, []);
+});

@@ -199,6 +199,29 @@ export function withInboxLine(text, line, slug) {
   return `${[...lines.slice(0, last + 1), line, ...lines.slice(last + 1)].join("\n")}\n`;
 }
 
+const PAPER_TASK = /^Статья(\s|$)/;
+
+/** Text with the open reading task of the paper [[slug]] closed. A reading task starts with "Статья" and links the
+ * paper: an inbox line "- [ ] Статья …", or a plan-table row whose «Что» cell starts so and whose «Готово» cell is
+ * "[ ]". Lines that only mention the paper stay as they are. Unchanged when there is no such task. */
+export function closeTasks(text, slug) {
+  const link = `[[${slug}]]`;
+  let doneAt = -1; // index of the «Готово» cell in the table being read
+  return text.split("\n").map((line) => {
+    const isRow = line.trimStart().startsWith("|");
+    if (!isRow) doneAt = -1;
+    if (isRow) {
+      const cells = line.split("|");
+      const header = cells.findIndex((c) => c.trim().toLowerCase() === "готово");
+      if (header >= 0) doneAt = header;
+      if (!line.includes(link) || doneAt < 0 || cells[doneAt]?.trim() !== "[ ]" || !cells.some((c) => PAPER_TASK.test(c.trim()))) return line;
+      return cells.map((c, n) => (n === doneAt ? " [x] " : c)).join("|");
+    }
+    const task = /^(\s*- )\[ \]( .*)$/.exec(line);
+    return task && line.includes(link) && PAPER_TASK.test(task[2].trim()) ? `${task[1]}[x]${task[2]}` : line;
+  }).join("\n");
+}
+
 // ---------- note body <-> Zotero HTML ----------
 // Supported: p, br, strong, em, code, a, blockquote, ul/ol/li, h1-h3.
 

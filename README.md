@@ -75,8 +75,8 @@ One paper is one Zotero item. easy-read saves papers and notes to Zotero; the Ob
 the plan-browser extension (or `node ~/.claude/skills/zotero-link/cli.mjs sync`).
 
 Set up once in the options page, section **Zotero**: paste the API key (zotero.org/settings/keys, rights
-library + notes + write), press «Проверить», pick the collection (default `Reading list`), and choose the vault
-folder for PDFs.
+library + notes + write), press «Проверить», pick the collection (default `Reading list`), and choose the root
+folder of the vault (the one that holds `.obsidian`; a subfolder is refused).
 
 | Action | How |
 |---|---|
@@ -87,6 +87,7 @@ folder for PDFs.
 | See earlier notes | quotes are highlighted in the text; click a highlight to open its note |
 | Reading list | **Alt+Shift+L**, or the link in the viewer / options |
 | Keep the PDF | in the PDF viewer the file is written to `0_media/papers/<slug>.pdf` of the vault once the paper is known; on an article page press «Сохранить PDF» |
+| Remove a paper from the reading list | reading list → «Удалить из списка…»: the paper leaves the collection; the Zotero item, the notes and the PDF stay. Its reading task (the inbox line or plan row that starts with «Статья» and links the paper) is closed by the next plan-browser sync |
 | Your own PDF (e.g. from the author) | reading list → «Прикрепить PDF…» (or drop the file on the row); or open the file in the viewer → 📝 → «Привязать к статье…» |
 
 Works on PDFs (viewer) and on HTML article pages. A page is recognised by `citation_doi` / `citation_pmid`

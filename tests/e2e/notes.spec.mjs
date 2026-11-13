@@ -22,7 +22,7 @@ async function fakeZotero(sw, papers = []) {
       const method = init.method || "GET";
       if (path === "/keys/current") return json({ userID: 1, username: "test", access: { user: { library: true, write: true } } });
       if (path === "/collections") return json([{ key: "ROOT", data: { name: "Reading list", parentCollection: false } }]);
-      if (path === "/collections/ROOT/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem) : []);
+      if (path === "/collections/ROOT/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem && (it.data.collections ?? ["ROOT"]).includes("ROOT")) : []);
       if (path === "/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem) : []);
       const one = /^\/items\/(\w+)(\/children)?$/.exec(path);
       if (method === "POST" && path === "/items") {
@@ -248,4 +248,27 @@ test("reading list: attaching a PDF confirms the vault folder inside the click, 
   await dialog.setFiles(TEST_PDF);
   await expect(list.locator("#status")).toContainText("PDF привязан: McGranahan 2016");
   await expect(list.locator("li")).toContainText("PDF ✓ 0_media/papers/mcgranahan-2016-clonal.pdf");
+});
+
+test("reading list: a paper is removed from the list after a confirmation; the Zotero item stays", async ({ context, sw }) => {
+  const paper = (key, name) => ({ key, data: { itemType: "journalArticle", title: `Paper of ${name}`, creators: [{ lastName: name }], date: "2020", collections: ["ROOT", "OTHER"], extra: `obsidian: 1_education/papers/${name.toLowerCase()}-2020.md` } });
+  await fakeZotero(sw, [paper("SEEDED03", "Cabrita"), paper("SEEDED04", "Helmink")]);
+  const list = await context.newPage();
+  await list.goto(viewerUrl(sw).replace("viewer.html", "reading.html"));
+  await expect(list.locator("li")).toHaveCount(2);
+  const row = list.locator("li", { hasText: "Cabrita 2020" });
+
+  list.once("dialog", (d) => d.dismiss()); // "no": nothing changes
+  await row.getByRole("button", { name: "Удалить из списка…" }).click();
+  await expect(list.locator("li")).toHaveCount(2);
+
+  let asked = "";
+  list.once("dialog", (d) => { asked = d.message(); return d.accept(); });
+  await row.getByRole("button", { name: "Удалить из списка…" }).click();
+  await expect(list.locator("li")).toHaveCount(1);
+  await expect(list.locator("li")).toContainText("Helmink 2020");
+  await expect(list.locator("#status")).toContainText("Убрано из списка: Cabrita 2020");
+  expect(asked).toContain("Cabrita 2020");
+  const kept = (await zItems(sw)).find((it) => it.key === "SEEDED03");
+  expect(kept.data.collections).toEqual(["OTHER"]);
 });

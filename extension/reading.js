@@ -99,6 +99,21 @@ function row(p) {
     else say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файл.");
   });
   actions.append(pick);
+  const drop = el("button", { type: "button", text: "Удалить из списка…" });
+  drop.addEventListener("click", async () => {
+    if (!confirm(`Убрать «${p.label}» из списка чтения?\nЗапись в Zotero, заметки и PDF останутся. Задача закроется при следующей синхронизации plan-browser.`)) return;
+    drop.disabled = true;
+    try {
+      await zotero("remove", { key: p.key });
+    } catch (e) {
+      say(`Не убрано: ${e.message}`, true);
+      drop.disabled = false;
+      return;
+    }
+    say(`Убрано из списка: ${p.label}. Задача закроется при синхронизации plan-browser.`);
+    await load(); // reports its own failure; the paper is already out of the list
+  });
+  actions.append(drop);
   const item = el("li", {}, [
     el("p", { class: "title" }, [document.createTextNode(`${p.label} `), el("span", { text: `— ${p.title}` })]),
     actions,

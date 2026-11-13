@@ -186,6 +186,21 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       if (hash) await cache.set([`h:${hash}`], key);
       return { path };
     },
+    /** Take the paper out of the reading list: out of every collection of the tree. The item, its notes and PDF stay. */
+    async remove({ key }) {
+      const tree = new Set(collectionTree(await zot.collections(), collection).map((c) => c.key));
+      if (!tree.size) throw new Error("Коллекция Zotero не найдена. Выбери её в настройках easy-read.");
+      for (let attempt = 0; ; attempt++) {
+        const it = await zot.item(key);
+        const now = it.data.collections || [];
+        const left = now.filter((c) => !tree.has(c));
+        if (left.length === now.length) break; // already out
+        const res = await zot.patch(key, { collections: left }, it.version);
+        if (!res.conflict) break;
+        if (attempt) throw new Error("Запись изменилась в Zotero, статья не убрана. Повтори.");
+      }
+      return {};
+    },
     /** "This open document is that paper" (a local file tied to an item by hand). */
     async attach({ key, doc }) {
       await cache.set(docIds(doc, null), key);
