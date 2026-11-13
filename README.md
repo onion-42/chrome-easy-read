@@ -12,6 +12,8 @@ Reading comfort per site, plus reading aloud with subtitles that look the same a
 - **PDFs too:** a PDF opens as easy-read text (paragraphs, headings, two columns put in order, running headers and
   line numbers removed), with reading aloud. "Show page" draws the real page for figures and tables;
   "Clean up with Gemini" rebuilds messy or scanned PDFs.
+- **Ask and translate:** in the notes panel, ask Claude a question about the paper you are reading, or
+  translate the selected text with DeepSeek. An answer goes into a note with one click.
 
 Comfort and choice, not a treatment: studies of dyslexia fonts found no reliable gain in reading speed.
 
@@ -89,6 +91,27 @@ Works on PDFs (viewer) and on HTML article pages. A page is recognised by `citat
 meta tags, a DOI in the address, or a PubMed address; a PDF by its content hash, a DOI on its first page, or its
 address. A page with none of these is saved as a web page item.
 
+## Questions about the paper and translation
+
+Open the notes panel (📝 or Alt+Shift+N) and unfold **«Помощник: вопросы и перевод»**.
+
+| I want to… | Do this |
+|---|---|
+| Ask about the paper | type the question → **Спросить Claude** (or Ctrl+Enter in the question box) |
+| Ask a follow-up | just ask: the conversation is kept until **Новый разговор** or a new document |
+| Translate a passage | select it in the article → **Перевести выделенное** (any length up to 60,000 characters) |
+| Keep an answer | **В заметку** puts it into the note box; save the note as usual |
+| Keep one document private | tick **Не отправлять этот документ в Claude и DeepSeek** (remembered for this document) |
+
+Setup: in **Options** paste a Claude API key (from platform.claude.com; a Claude subscription does not include
+one) and a DeepSeek API key. The translation service is editable: any OpenAI-compatible address, model and key.
+
+Cost: a question sends the whole paper. The paper is cached at Anthropic for 1 hour, so follow-up questions are
+much cheaper than the first. The line under each answer shows the tokens and the approximate price; prices are
+a table in `extension/assist.js` (checked 2026-11-13) and may drift from the real bill.
+
+For a scanned PDF run **Clean up with Gemini** first: without text there is nothing to ask about.
+
 ## Privacy
 
 - Settings (look) sync through your Chrome profile. The Gemini API key stays in this Chrome only.
@@ -97,6 +120,11 @@ address. A page with none of these is saved as a web page item.
 - The built-in voice works offline; nothing leaves the computer.
 - The local neural voice sends the text only to the Piper server on `127.0.0.1`, so it also reads the
   "Built-in voice only" sites.
+- A question to Claude sends the text of the open paper and your questions to Anthropic. A translation sends the
+  selected text to DeepSeek (or the address you set). Nothing is sent until you press one of the two buttons.
+  Both are off on the "Built-in voice only" sites and for a document with the "do not send" box ticked.
+  That box covers Claude and DeepSeek only; the Gemini voice and clean-up follow their own settings above.
+- The Claude and DeepSeek keys stay in this Chrome only.
 - PDFs are read on this computer. Only **Clean up with Gemini** sends the whole PDF to Google (model
   `gemini-3.8-flash`, about a few cents per paper); it is switched off for the "Built-in voice only" sites.
 
@@ -110,6 +138,7 @@ npm run sync        # copy easy-read.js from the easy-read skill after it change
 npm run icons       # re-render the toolbar icons
 node scripts/fetch-fonts.mjs     # re-download OpenDyslexic (SIL OFL)
 node scripts/gemini-smoke.mjs    # one real Gemini request; needs GEMINI_API_KEY in your terminal
+node scripts/assist-smoke.mjs    # one real Claude + DeepSeek request; needs ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
 npm run vendor      # copy PDF.js (pinned pdfjs-dist) into extension/vendor/pdfjs
 npm run test-pdf    # re-print tests/e2e/pages/paper.pdf from paper.html
 node scripts/pdf-to-text.mjs some.pdf   # print how the viewer re-flows a PDF
@@ -133,6 +162,8 @@ options.*       voice settings
 viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", Gemini clean-up
 pdf-text.js     pure: PDF text items -> paragraphs / headings (columns, hyphens, running headers, line numbers)
 pdf-clean.js    Gemini clean-up request + Markdown -> plain blocks
+assist.js       Claude question + DeepSeek translation requests, price estimate, plain-language errors
+assist-ui.js    in the page: the assistant section of the notes panel
 gemini-api.js   shared Gemini REST helper (request, plain-language errors, reading the model's output)
 host.js         hands easy-read its profile in a page (websites and the viewer)
 vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
@@ -146,6 +177,10 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - A PDF of 95 MB or more is not written to the vault (GitHub rejects files of 100 MB).
 - After a Chrome restart the vault folder needs one click to confirm access; notes are saved to Zotero regardless.
 - Deleting a note is done in Zotero.
+
+- Claude answers arrive whole, not word by word: a long paper can take up to a minute.
+- The conversation with Claude lives in the tab. A reload or another document starts a new one.
+- A paper is sent as the text the viewer shows; figures and tables are not seen by Claude.
 
 - Gemini and the local voice return no word timings, so the marked word is an estimate; the sentence is exact.
 - Pause stops on the marked word; resume and a new speed continue from that word. The built-in voice gets

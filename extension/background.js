@@ -6,6 +6,7 @@ import { synthesize } from "./tts/gemini.js";
 import { synthesizeLocal } from "./tts/local.js";
 import { speakBuiltin, detectLang } from "./tts/builtin.js";
 import { zotero } from "./zotero.js";
+import { ask, translate } from "./assist.js";
 
 const PROFILE_KEY = "settings";
 const SAVE_DELAY_MS = 400; // sliders fire many events; chrome.storage.sync allows ~120 writes/min
@@ -18,7 +19,7 @@ const SAVE_MENU = "er-save-paper";
 const LIST_MENU = "er-reading-list";
 const READING_LIST = chrome.runtime.getURL("reading.html");
 const PDF_LINKS = ["*://*/*.pdf", "*://*/*.pdf?*", "*://*/*.PDF", "*://arxiv.org/pdf/*", "file:///*.pdf"];
-const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js"];
+const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js", "assist-ui.js"];
 const AUDIO_CACHE_SIZE = 24;
 const TEST_PHRASE = "Hello! This is your reading voice.";
 const VIEWER = chrome.runtime.getURL("viewer.html");
@@ -302,6 +303,15 @@ async function testVoice() {
   await playInOffscreen("test", null, await audio, opts.rate);
 }
 
+/** Notes panel: a question about the paper (Claude) or a translation (DeepSeek). Work sites send nothing. */
+async function assist(msg, tab) {
+  const opts = await loadReaderOptions();
+  if (isWorkSite(opts, tab)) throw new Error("Off for this site: it is on the “built-in voice only” list in options.");
+  if (msg.op === "ask") return self.easyRead.assist.ask({ paper: msg.paper, history: msg.history, question: msg.question }, opts);
+  if (msg.op === "translate") return self.easyRead.assist.translate(msg.text, opts);
+  throw new Error(`Unknown assist operation: ${msg.op}`);
+}
+
 async function relayAudioEvent(msg) {
   const tab = await chrome.tabs.get(msg.tabId);
   await toTab(tab, { ...msg, type: "tts-event" });
@@ -319,6 +329,9 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     return true;
   } else if (msg.type === "zotero") {
     zotero(msg).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
+    return true;
+  } else if (msg.type === "assist") {
+    assist(msg, sender.tab).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
     return true;
   } else if (msg.type === "open-pdf") {
     openPdf(msg.url, sender.tab, msg.key).catch((e) => console.error("easy-read: open PDF failed", e));
@@ -364,11 +377,12 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   onPageLoaded(tabId, tab.url).catch((e) => console.error("easy-read: page load handling failed", e));
 });
 
-// handy from the service worker console; the E2E tests also swap `engines` for a fake voice
+// handy from the service worker console; the E2E tests also swap `engines` and `assist` for fakes
 self.easyRead = {
   toggleSite,
   openPdf,
   startReading: (tab, fromContext) => readerCommand(tab, "reader-start", fromContext),
   openNotes: (tab) => readerCommand(tab, "notes-open"),
   engines,
+  assist: { ask, translate },
 };

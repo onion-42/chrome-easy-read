@@ -123,6 +123,44 @@
       </label>
     </fieldset>
 
+    <fieldset>
+      <legend>Questions about the paper (Claude)</legend>
+      <label>Claude API key
+        <input type="password" name="claudeKey" spellcheck="false" placeholder="sk-ant-…">
+        <span class="hint">Stored only in this Chrome profile (never synced). Get one at
+          <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noreferrer">platform.claude.com</a>.
+          A Claude subscription does not include an API key.</span>
+      </label>
+      <label>Model
+        <select name="claudeModel">
+          <option value="claude-opus-5-5">Claude Opus 5.5 (most accurate)</option>
+          <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (half the price)</option>
+          <option value="claude-haiku-5-5">Claude Haiku 5.5 (cheapest)</option>
+        </select>
+      </label>
+      <p class="note">A question sends the whole text of the paper to Anthropic. The approximate price is shown under each answer.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Translation (DeepSeek)</legend>
+      <label>DeepSeek API key
+        <input type="password" name="deepseekKey" spellcheck="false" placeholder="sk-…">
+        <span class="hint">Stored only in this Chrome profile. Get one at
+          <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noreferrer">platform.deepseek.com</a>.</span>
+      </label>
+      <label>Address
+        <input type="text" name="deepseekUrl" spellcheck="false">
+        <span class="hint">Any OpenAI-compatible service works: change the address, the model and the key.</span>
+      </label>
+      <label>Model
+        <input type="text" name="deepseekModel" spellcheck="false">
+      </label>
+      <label>Translate into
+        <input type="text" name="translateTo" placeholder="Russian">
+      </label>
+      <p class="note">A translation sends the selected text to this service.</p>
+    </fieldset>
+
     <div class="row">
       <button type="button" class="primary" id="test">Test voice</button>
       <p id="status" role="status"></p>

@@ -23,6 +23,12 @@ export const READER_DEFAULTS = {
   style: "calm and clear",
   rate: 1,
   readCitations: false,
+  claudeKey: "",                        // questions about the paper (notes panel)
+  claudeModel: "claude-opus-5-5",
+  deepseekKey: "",                      // translation (notes panel)
+  deepseekUrl: "https://api.deepseek.com",
+  deepseekModel: "deepseek-chat",
+  translateTo: "Russian",
   builtinOnly: "", // domains whose text never leaves this computer (e.g. an employer's wiki)
 };
 

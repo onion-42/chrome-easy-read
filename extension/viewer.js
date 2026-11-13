@@ -10,7 +10,7 @@ import { getVault, permission, keepPdf, openPdf as openVaultPdf } from "./vault-
 
 const PROFILE_KEY = "settings";
 const SAVE_DELAY_MS = 400;
-const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js"];
+const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js", "assist-ui.js"];
 const ID_TEXT = 4000;      // characters of the first page searched for a DOI
 const CACHE_KEY = "pdfClean";
 const CACHE_SIZE = 10;     // cleaned PDFs kept, so reopening one costs nothing

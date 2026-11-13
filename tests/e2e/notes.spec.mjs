@@ -87,8 +87,8 @@ test("a note on selected text of an article page goes to Zotero and is highlight
   const panel = page.locator("#er-notes");
   await expect(panel).toBeVisible();
   await expect(panel.locator(".er-n-quote").first()).toContainText("the sample size is one patient");
-  await panel.locator("textarea").fill("Только один пациент.");
-  await panel.locator("textarea").press("Control+Enter");
+  await panel.getByLabel("Текст заметки").fill("Только один пациент.");
+  await panel.getByLabel("Текст заметки").press("Control+Enter");
   await expect(panel.locator(".er-n-item")).toHaveCount(1);
 
   const items = await zItems(sw);
@@ -123,7 +123,7 @@ test("editing a note, a conflict that keeps my text, and one summary per paper",
   await select(page, "#p3");
   await openNotes(sw, "noted.html");
   const panel = page.locator("#er-notes");
-  const field = panel.locator("textarea");
+  const field = panel.getByLabel("Текст заметки");
   await field.fill("первый вариант");
   await panel.getByRole("button", { name: "Сохранить заметку в Zotero" }).click();
   await expect(panel.locator(".er-n-item")).toHaveCount(1);
@@ -171,8 +171,8 @@ test("in the PDF viewer: note with the page number, the PDF goes to the vault fo
   await select(page, "article p");
   await openNotes(sw, "/viewer.html");
   const panel = page.locator("#er-notes");
-  await panel.locator("textarea").fill("заметка в PDF");
-  await panel.locator("textarea").press("Control+Enter");
+  await panel.getByLabel("Текст заметки").fill("заметка в PDF");
+  await panel.getByLabel("Текст заметки").press("Control+Enter");
   await expect(panel.locator(".er-n-item")).toHaveCount(1);
   await expect(panel).toContainText("PDF ✓ 0_media/papers/");
 

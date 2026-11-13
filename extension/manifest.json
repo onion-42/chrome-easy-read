@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "easy-read",
-  "version": "0.2.0",
-  "description": "Reading comfort per site (dyslexia-friendly font, spacing, calm colours, colour vision) + read aloud with easy-read subtitles.",
+  "version": "0.3.0",
+  "description": "Reading comfort per site (dyslexia-friendly font, spacing, calm colours, colour vision) + read aloud with easy-read subtitles, notes, questions about the paper and translation.",
   "minimum_chrome_version": "116",
   "permissions": [
     "storage",

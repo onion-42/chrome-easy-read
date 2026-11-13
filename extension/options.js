@@ -32,6 +32,12 @@ function fill(o) {
   form.style.value = o.style;
   form.rate.value = String(RATES.includes(o.rate) ? RATES.indexOf(o.rate) : RATES.indexOf(1));
   showRate();
+  form.claudeKey.value = o.claudeKey;
+  form.claudeModel.value = o.claudeModel;
+  form.deepseekKey.value = o.deepseekKey;
+  form.deepseekUrl.value = o.deepseekUrl;
+  form.deepseekModel.value = o.deepseekModel;
+  form.translateTo.value = o.translateTo;
   form.readCitations.checked = o.readCitations;
   form.builtinOnly.value = o.builtinOnly;
 }
@@ -47,6 +53,12 @@ function read() {
     voice: form.voice.value.trim() || READER_DEFAULTS.voice,
     style: form.style.value.trim(),
     rate: RATES[+form.rate.value],
+    claudeKey: form.claudeKey.value.trim(),
+    claudeModel: form.claudeModel.value,
+    deepseekKey: form.deepseekKey.value.trim(),
+    deepseekUrl: form.deepseekUrl.value.trim() || READER_DEFAULTS.deepseekUrl,
+    deepseekModel: form.deepseekModel.value.trim() || READER_DEFAULTS.deepseekModel,
+    translateTo: form.translateTo.value.trim() || READER_DEFAULTS.translateTo,
     readCitations: form.readCitations.checked,
     builtinOnly: form.builtinOnly.value,
   };

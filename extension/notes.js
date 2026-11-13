@@ -11,7 +11,7 @@
   var doc = document;
   var MAX_QUOTE = 2000;
   var ARTICLE_META = "meta[name=citation_doi], meta[name=citation_pmid], meta[name=citation_title]";
-  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "", gen: 0 };
+  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null, full: "" }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "", gen: 0 };
   // st.gen counts documents: the viewer can open another PDF while a request is out, and a late answer
   // for the previous document must never be applied to (or saved as) the new one
   var viewerDoc = typeof window.__erDoc === "function" ? window.__erDoc : null;
@@ -69,17 +69,18 @@
 
   function selectionQuote() {
     var sel = getSelection();
-    var quote = sel && !sel.isCollapsed ? sel.toString().trim().slice(0, MAX_QUOTE) : "";
+    var full = sel && !sel.isCollapsed ? sel.toString().trim() : ""; // the assistant translates all of it
+    var quote = full.slice(0, MAX_QUOTE);
     var node = sel && sel.anchorNode;
     var block = node && (node.nodeType === 1 ? node : node.parentElement);
-    if (block && block.closest(".er-ui")) return { quote: "", page: null }; // our own panel is not the article
+    if (block && block.closest(".er-ui")) return { quote: "", page: null, full: "" }; // our own panel is not the article
     block = block && block.closest("p, li, h2, h3, h4");
     var page = null, e = block;                              // nearest page marker above the block (PDF viewer)
     while (e && page == null) {
       e = e.previousElementSibling || (e.parentElement && e.parentElement.closest("article") ? e.parentElement : null);
       if (e && e.matches && e.matches(".er-page")) page = e.dataset.page;
     }
-    return { quote: quote, page: page };
+    return { quote: quote, page: page, full: full };
   }
 
   async function send(op, extra) {
@@ -101,19 +102,20 @@
   var saveBtn = button("Сохранить (Ctrl+Enter)", "Сохранить заметку в Zotero", save);
   var cancelBtn = button("Отмена", "Не менять заметку", function () { resetForm(); render(); });
   var msgEl = el("div", { class: "er-n-soft er-n-msg", role: "status" });
+  var extraEl = el("div"); // assist-ui.js mounts the assistant section here
   var listHead = el("div", { class: "er-n-soft" });
   var listEl = el("div");
   var panel = el("div", { id: "er-notes", class: "er-ui", role: "complementary", "aria-label": "Заметки к статье", hidden: "" }, [
     el("div", { class: "er-n-head" }, [titleEl, button("✕", "Закрыть заметки", close)]),
     statusEl, linksEl, pdfEl, quoteEl, input,
     el("div", { class: "er-n-row" }, [saveBtn, cancelBtn]),
-    msgEl, listHead, listEl
+    msgEl, extraEl, listHead, listEl
   ]);
 
   function say(text) { msgEl.textContent = text || ""; }
 
   function resetForm() {
-    st.editing = null; st.summary = false; st.pending = { quote: "", page: null };
+    st.editing = null; st.summary = false; st.pending = { quote: "", page: null, full: "" };
     input.value = "";
   }
 
@@ -385,6 +387,11 @@
   doc.body.appendChild(noteBtn);
   doc.body.appendChild(panel);
   noteBtn.hidden = !er.getState().enabled;
-  window.__easyReadNotes = { open: open, refresh: refresh };
+  window.__easyReadNotes = {
+    open: open, refresh: refresh,
+    mount: function (node) { extraEl.appendChild(node); },
+    quote: function () { return selectionQuote().full || st.pending.full || ""; }, // the whole selection, never shortened
+    fill: function (text) { input.value = (input.value ? input.value + "\n\n" : "") + text; input.focus(); },
+  };
   if (viewerDoc ? !!viewerDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
 })();
