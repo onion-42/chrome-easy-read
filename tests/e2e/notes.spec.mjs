@@ -23,10 +23,7 @@ async function fakeZotero(sw, papers = []) {
       if (path === "/keys/current") return json({ userID: 1, username: "test", access: { user: { library: true, write: true } } });
       if (path === "/collections") return json([{ key: "ROOT", data: { name: "Reading list", parentCollection: false } }]);
       if (path === "/collections/ROOT/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem) : []);
-      if (path === "/items/top") {
-        const q = url.searchParams.get("q") || "";
-        return json(all.filter((it) => !it.data.parentItem && ((it.data.DOI || "").toLowerCase() === q.toLowerCase() || it.data.url === q)));
-      }
+      if (path === "/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem) : []);
       const one = /^\/items\/(\w+)(\/children)?$/.exec(path);
       if (method === "POST" && path === "/items") {
         const [data] = JSON.parse(init.body);

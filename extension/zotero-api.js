@@ -69,15 +69,15 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
     notes: () => paged(`${u()}/items?itemType=note&includeTrashed=1`),
     children: (key) => paged(`${u()}/items/${key}/children`),
     item: async (key) => (await call("GET", `${u()}/items/${key}`)).data,
+    // Zotero's search (?q=) does not look into the DOI field (checked on the live API: no hits for a DOI that is
+    // there), so the library's top-level items are read and compared here. One request per 100 items.
     findByDoi: async (doi) => {
-      // top-level items only: child notes quote the paper's address and would crowd the paper out of the results
-      const { data } = await call("GET", `${u()}/items/top?q=${encodeURIComponent(doi)}&qmode=everything&limit=25`);
-      return data.find((it) => (it.data.DOI || "").toLowerCase() === doi.toLowerCase()) || null;
+      const want = doi.toLowerCase();
+      const has = (d) => (d.DOI || "").toLowerCase() === want || (d.url || "").toLowerCase() === `https://doi.org/${want}`
+        || new RegExp(`^DOI:\\s*${want.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "im").test(d.extra || "");
+      return (await paged(`${u()}/items/top`)).find((it) => has(it.data)) || null;
     },
-    findByUrl: async (url) => {
-      const { data } = await call("GET", `${u()}/items/top?q=${encodeURIComponent(url)}&qmode=everything&limit=25`);
-      return data.find((it) => it.data.url === url && it.data.itemType !== "attachment") || null;
-    },
+    findByUrl: async (url) => (await paged(`${u()}/items/top`)).find((it) => it.data.url === url && it.data.itemType !== "attachment") || null,
     create,
     /** PATCH; returns { version } or { conflict: true } when the item changed since ifVersion. */
     patch: async (key, fields, ifVersion) => {
