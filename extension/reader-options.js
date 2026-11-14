@@ -20,6 +20,7 @@ export const READER_DEFAULTS = {
   apiKey: "",                           // Gemini: reads scanned PDFs
   rate: 1,
   readCitations: false,
+  readFigureRefs: false,
   claudeKey: "",                        // questions about the paper (notes panel)
   claudeModel: "claude-opus-5-5",
   deepseekKey: "",                      // translation (notes panel) and PDF clean-up

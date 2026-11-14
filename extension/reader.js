@@ -11,6 +11,7 @@
   var doc = document;
   var BLOCKS = "p, li, h1, h2, h3, h4, h5, h6, dd, dt, td, th, blockquote, figcaption";
   var SKIP = "nav, footer, aside, form, button, pre, script, style, svg, textarea, select, input, [role=navigation], [aria-hidden=true], .er-ui";
+  var JUMP_SKIP = ".er-ui, a[href], input, textarea, select, button, summary, label, [role=button], [contenteditable]";
   var MATH = "math, .katex, mjx-container, .MathJax";              // raw TeX read aloud is noise
   var CITE_EL = "cite.ltx_cite, sup.reference, a[role=doc-noteref], a[role=doc-biblioref]";
   var WORD = /[\p{L}\p{N}][\p{L}\p{N}'’\-]*/gu;                     // same words as text.js timings
@@ -18,8 +19,8 @@
   var BASE_PX = 22;                                                   // subtitle size before the easy-read scale
   var reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  var st = { chunks: [], i: 0, n: 0, active: false, paused: false, errored: false, rate: 1, rates: [1], readCitations: false,
-    resumeAt: null, startMs: 0, session: Math.random().toString(36).slice(2) };
+  var st = { chunks: [], i: 0, n: 0, active: false, paused: false, errored: false, rate: 1, rates: [1], readCitations: false, readFigureRefs: false,
+    resumeAt: null, startMs: 0, startFrac: 0, session: Math.random().toString(36).slice(2) };
   var timings = null, mediaMs = 0, lastFrame = 0, raf = 0, wordEvents = false;
   var readingBlock = null, markedWord = null, wordEls = [];
 
@@ -57,12 +58,57 @@
     });
   }
 
-  /* selection, then the right-clicked element, then the pinned easy-read focus */
+  /* the last left click, if it landed on readable text that is still on the page */
+  function lastClick() {
+    var c = window.__erClick, t = c && c.target;
+    if (!t || !t.isConnected || !t.closest || !t.closest(BLOCKS) || skipped(t)) return null;
+    return c;
+  }
+
+  /* selection, then the right-clicked element, then the left-clicked word, then the pinned easy-read focus.
+   * A focus highlight moved somewhere else after the click (Alt+Arrow keys) is newer than the click. */
   function startPoint(fromContext) {
     var sel = window.getSelection();
-    if (sel && !sel.isCollapsed && sel.anchorNode) return elementOf(sel.anchorNode);
-    if (fromContext && window.__erContextTarget) return window.__erContextTarget;
-    return doc.querySelector(".er-focus");
+    if (sel && !sel.isCollapsed && sel.anchorNode) return { el: elementOf(sel.anchorNode) };
+    if (fromContext && window.__erContextTarget) return { el: window.__erContextTarget };
+    var focus = doc.querySelector(".er-focus"), click = lastClick();
+    if (click && !(focus && !focus.contains(click.target))) return { el: click.target, click: click };
+    return { el: focus };
+  }
+
+  /* the clicked word -> { k: chunk index, char: index in that chunk's say }. The click's place in the
+   * block's text is turned into a place in the spoken text, then snapped to the clicked word. */
+  function wordStart(chunks, click) {
+    var none = { k: 0, char: 0 };
+    if (!click) return none;
+    var block = click.target.closest(BLOCKS);
+    var first = chunks.findIndex(function (c) { return c.block === block; });
+    if (first < 0) return none;
+    var r = doc.createRange();
+    r.setStart(block, 0); r.setEnd(click.target, 0);
+    var caret = r.toString().replace(/\s+/g, " ").length + click.chars, seen = 0, last = { k: first, char: 0 };
+    for (var k = first; k < chunks.length && chunks[k].block === block; k++) {
+      var said = 0;
+      for (var j = 0; j < chunks[k].parts.length; j++) {
+        var p = chunks[k].parts[j];
+        if (seen + p.text.length > caret) return snap(chunks[k], k, said + (p.say === p.text ? caret - seen : 0), click.word);
+        seen += p.text.length; said += p.say.length;
+      }
+      last = { k: k, char: said };
+    }
+    return snap(chunks[last.k], last.k, last.char, click.word);
+  }
+
+  /* the word of the chunk at or before `at`; when the text before the click was not all spoken text
+   * (skipped elements), the estimate drifts, so the nearest occurrence of the clicked word wins */
+  function snap(chunk, k, at, clicked) {
+    var say = chunk.say, words = T.wordTimings(say, 1);
+    if (!words.length) return { k: k, char: 0 };
+    var same = words.filter(function (w) { return say.substr(w.index, w.length) === clicked; });
+    var pool = same.length ? same : words.filter(function (w) { return w.index <= at; });
+    if (!pool.length) pool = [words[0]];
+    var best = pool.reduce(function (x, y) { return Math.abs(y.index - at) < Math.abs(x.index - at) ? y : x; });
+    return { k: k, char: best.index };
   }
 
   function startIndex(blocks, from) {
@@ -125,7 +171,7 @@
     var blocks = readableBlocks(), out = [];
     blocks.slice(startIndex(blocks, from)).forEach(function (b) {
       var lang = langOf(b);
-      var segs = T.splitSegments(mergePlain(rawSegments(b, lang)), { readCitations: st.readCitations });
+      var segs = T.splitSegments(mergePlain(rawSegments(b, lang)), { readCitations: st.readCitations, readFigureRefs: st.readFigureRefs });
       T.toChunks(segs, { lang: lang }).forEach(function (c) {
         if (c.say.trim()) out.push({ block: b, parts: c.parts, say: c.say, lang: lang });
       });
@@ -260,13 +306,24 @@
     if (i >= st.chunks.length) { stop(); return; }
     st.i = Math.max(0, i); st.n += 1; st.paused = false; st.errored = false;
     var c = st.chunks[st.i], at = from || { char: 0, ms: 0 };
-    timings = null; wordEvents = false; mediaMs = at.ms; st.startMs = at.ms;
+    timings = null; wordEvents = false; mediaMs = at.ms; st.startMs = at.ms; st.startFrac = at.frac || 0;
     if (!from) showChunk(c); // continuing keeps the subtitle and the marked word
     markBlock(c.block); showMsg(""); setPlayButton();
     // fast speech outruns a short prefetch: 2 sentences at 1x, 4 at 2x, 6 at 3x, at most 8
     var ahead = Math.min(MAX_LOOKAHEAD, Math.max(LOOKAHEAD, Math.ceil(st.rate * 2)));
-    send({ type: "speak", id: speechId(), text: c.say, startChar: at.char, startMs: at.ms, lang: c.lang, rate: st.rate,
+    send({ type: "speak", id: speechId(), text: c.say, startChar: at.char, startMs: at.ms, startFrac: st.startFrac, lang: c.lang, rate: st.rate,
       next: st.chunks.slice(st.i + 1, st.i + 1 + ahead).map(function (x) { return x.say; }) });
+  }
+
+  /* start sentence i at a word that was never played: the audio time of the word is not known yet, so the
+   * local voice gets it as a fraction of the sentence (the same estimate the word highlight uses) */
+  function playAt(i, char) {
+    if (!(char > 0)) { play(i); return; }
+    var c = st.chunks[i], words = T.wordTimings(c.say, 1);
+    var w = words.filter(function (x) { return x.index <= char; }).pop();
+    showChunk(c);
+    markWord(char);
+    play(i, { char: char, ms: 0, frac: w ? w.t : 0 });
   }
 
   function start(fromContext) {
@@ -274,15 +331,17 @@
     return chrome.runtime.sendMessage({ type: "reader-options" }).then(function (o) {
       stop();
       st.readCitations = o.readCitations;
+      st.readFigureRefs = o.readFigureRefs;
       fillRates(o.rates, o.rate);
       st.rate = st.rates[+rateIn.value]; // a stored speed off the slider snaps to 1x
-      st.chunks = collect(from);
+      st.chunks = collect(from.el);
       bar.hidden = false;
       if (!st.chunks.length) { showMsg("No readable text from here."); return; }
       st.active = true;
       lastFrame = performance.now();
       raf = requestAnimationFrame(frame);
-      play(0);
+      var w = wordStart(st.chunks, from.click);
+      playAt(w.k, w.char);
     }).catch(fail);
   }
 
@@ -319,7 +378,10 @@
     if (!st.active || m.id !== speechId()) return; // an older sentence
     if (m.event === "start") {
       lastFrame = performance.now(); mediaMs = st.startMs;
-      if (m.durationMs) timings = T.wordTimings(st.chunks[st.i].say, m.durationMs);
+      if (m.durationMs) {
+        timings = T.wordTimings(st.chunks[st.i].say, m.durationMs);
+        if (st.startFrac) mediaMs = st.startFrac * m.durationMs;
+      }
     } else if (m.event === "word") { wordEvents = true; markWord(m.charIndex); }
     else if (m.event === "end") play(st.i + 1);
     else if (m.event === "error") { showMsg(m.message); st.errored = true; setPlayButton(); }
@@ -334,6 +396,20 @@
     if (st.active && !st.paused) play(st.i, currentWord());  // continue from this word at the new speed
   });
   readBtn.addEventListener("click", function () { start(false); });
+
+  /* while reading, a click on a word jumps there. Links, form fields, our own bar, a drag that selected
+   * text and a click on a note's highlight (it opens the note) keep their usual meaning. */
+  doc.addEventListener("click", function (e) {
+    if (!st.active || e.button !== 0 || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    var t = e.target, sel = window.getSelection();
+    if (!t.closest || t.closest(JUMP_SKIP) || (sel && !sel.isCollapsed)) return;
+    var click = lastClick(), notes = window.__easyReadNotes;
+    if (!click || click.target !== t || (notes && notes.at && notes.at(e.clientX, e.clientY))) return;
+    if (!st.chunks.some(function (c) { return c.block === t.closest(BLOCKS); })) st.chunks = collect(t);
+    if (!st.chunks.length) return;
+    var w = wordStart(st.chunks, click);
+    playAt(w.k, w.char);
+  });
 
   /* Space = pause / resume while reading. It still types in fields and presses the page's own buttons;
    * on the reading bar's buttons (focused after a click) it pauses instead of pressing them again */

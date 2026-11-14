@@ -51,12 +51,43 @@ test("URLs are spoken as their domain, DOIs and footnote marks not at all", () =
   assert.deepEqual(muted(splitCitations("Smith† and Lee‡ wrote it.")), ["†", "‡"]);
 });
 
-test("figure refs, statistics and ordinary brackets are read", () => {
-  for (const text of ["(Fig. 2a)", "(Table 1)", "(p < 0.05)", "(n = 34)", "(95% CI 1.2–2.3)",
+test("statistics and ordinary brackets are read", () => {
+  for (const text of ["(p < 0.05)", "(n = 34)", "(95% CI 1.2–2.3)",
     "(published in 2020)", "the year (2020)", "[sic]", "p < 0.05 *",
     "(Since 2020)", "(January 2021)", "(Windows 2000)", "(Summer 1945)"]) {
     assert.deepEqual(muted(splitCitations(`It held ${text} here.`)), [], text);
   }
+});
+
+test("a bracket holding only figure or table references is not spoken", () => {
+  for (const ref of ["(Fig. 2a)", "(Table 1)", "(Supplementary Figure 3)", "(Figure 1B, C)",
+    "(Supplementary Fig. S4)", "(Extended Data Fig. 5)", "(Table S2)", "(see Fig. 2)",
+    "(Figs. 2 and 3)", "(Fig. 2a; Table 1)", "(Fig. 2a–d)", "(Supplementary Figures 3 and 4)",
+    "(Supplementary Table 2)", "(Fig. 1A,B and Supplementary Fig. 2)"]) {
+    const segs = splitCitations(`It held ${ref} here.`);
+    assert.deepEqual(muted(segs), [ref], ref);
+    assert.equal(spoken(segs), "It held  here.", ref);
+  }
+});
+
+test("a figure reference outside a bracket, or mixed with other text, is read", () => {
+  for (const text of ["Fig. 2a shows the result", "(n = 5; Fig. 2a)", "(Figure it out)", "(Table for two)",
+    "(as shown in Fig. 2, the effect holds)", "(Fig. 2 shows growth)"]) {
+    assert.deepEqual(muted(splitCitations(`It held ${text} here.`)), [], text);
+  }
+});
+
+test("readFigureRefs keeps figure references spoken", () => {
+  const segs = splitCitations("It held (Fig. 2a) here [1].", { readFigureRefs: true });
+  assert.deepEqual(muted(segs), ["[1]"]);
+  assert.ok(spoken(segs).includes("(Fig. 2a)"));
+});
+
+test("a muted figure reference stays in the chunk parts but not in what is said", () => {
+  const chunks = toChunks(splitCitations("Growth increased sharply over the whole period (Supplementary Figure 3) in all tumors."), { lang: "en" });
+  const parts = chunks.flatMap((c) => c.parts);
+  assert.ok(parts.some((p) => p.text === "(Supplementary Figure 3)" && p.say === ""));
+  assert.ok(!chunks.map((c) => c.say).join(" ").includes("Figure"));
 });
 
 test("readCitations keeps citations spoken but still drops URLs, DOIs and marks", () => {

@@ -55,6 +55,8 @@ macOS and Windows have no systemd. Download the voices with the command in the l
 | Read aloud / pause / resume | **Alt+Shift+R**, or the 🔊 button next to Aa |
 | Pause / resume while reading | **Space** (stops on the current word; resume continues from it) |
 | Start from a selection | select text, then Alt+Shift+R or 🔊 |
+| Start at a word | click the word, then Alt+Shift+R or 🔊 |
+| Jump while reading | click any word of the text |
 | Voice, speed, citations, private sites | extension **Options** |
 | Open a PDF as easy-read text | on the PDF: click the "Aa" icon (badge `PDF` on remembered sites); click again → back |
 | Open a PDF link as easy-read text | right-click the link → **Open PDF in easy-read** |
@@ -197,6 +199,9 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - Citation filter trade-offs: one-author citations need a comma to be skipped — `(Smith, 2020)` is skipped,
   comma-less `(Smith 2020)` is read, so `(Since 2020)` is never lost. A year in brackets after a capitalised
   word, `Paris (2019)`, is treated like `Smith (2019)` and skipped.
+- Figure and table references are skipped only when a bracket holds nothing else: `(Fig. 2a)`,
+  `(Supplementary Figure 3)`, `(Figs. 2 and 3; Table S1)` are skipped; `(n = 5; Fig. 2a)` and
+  "Fig. 2a shows…" are read. Options → "Read figure and table references aloud" turns the skipping off.
 - Very long pages (book length) pause for a moment when reading starts: all paragraphs are prepared up front.
 - Text inside iframes (embedded viewers) is neither restyled nor read.
 - PDF text view: a real hyphen at a line end ("short-" / "chain") cannot be told from a split word and is

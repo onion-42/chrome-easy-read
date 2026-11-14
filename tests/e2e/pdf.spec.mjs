@@ -54,6 +54,33 @@ test("reading aloud works in the viewer: citations skipped, words marked, Space 
   await expect(bar.getByRole("button", { name: "Resume" })).toBeVisible();
 });
 
+test("in the viewer, reading starts at the left-clicked word", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server);
+  await sw.evaluate(() => {
+    self.__spoken = [];
+    self.easyRead.engines.builtin = (msg, tab, send) => { self.__spoken.push(msg.text); send({ event: "start", durationMs: 5000 }); };
+  });
+  const at = await page.evaluate(() => {
+    const walker = document.createTreeWalker(document.querySelector("article"), NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const i = walker.currentNode.nodeValue.indexOf("blockade");
+      if (i < 0) continue;
+      const r = document.createRange();
+      r.setStart(walker.currentNode, i + 1); r.setEnd(walker.currentNode, i + 2);
+      walker.currentNode.parentElement.scrollIntoView({ block: "nearest" });
+      const box = r.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    throw new Error("word not found");
+  });
+  await page.mouse.click(at.x, at.y);
+  await sw.evaluate(async () => {
+    const tab = (await chrome.tabs.query({})).find((t) => t.url.includes("/viewer.html"));
+    await self.easyRead.startReading(tab, false);
+  });
+  await expect.poll(() => sw.evaluate(() => self.__spoken[0])).toMatch(/^blockade varies widely/);
+});
+
 test("Show page draws the real page under its marker", async ({ context, sw, server }) => {
   const page = await openViewer(context, sw, server);
   await page.getByRole("button", { name: "Show page 1" }).click();

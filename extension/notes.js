@@ -388,6 +388,7 @@
   doc.body.appendChild(panel);
   noteBtn.hidden = !er.getState().enabled;
   window.__easyReadNotes = {
+    at: noteAt, // reader.js: a click on a note opens it and is not a jump
     open: open, refresh: refresh,
     mount: function (node) { extraEl.appendChild(node); },
     quote: function () { return selectionQuote().full || st.pending.full || ""; }, // the whole selection, never shortened

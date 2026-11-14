@@ -18,7 +18,7 @@ function stop() {
   audio.removeAttribute("src");
 }
 
-function play({ id, tabId, data, sampleRate, rate, startMs = 0 }) {
+function play({ id, tabId, data, sampleRate, rate, startMs = 0, startFrac = 0 }) {
   stop();
   const wav = pcmToWav(base64ToBytes(data), sampleRate);
   const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
@@ -30,7 +30,8 @@ function play({ id, tabId, data, sampleRate, rate, startMs = 0 }) {
   // seek once the length is known: after a pause the sentence continues at the paused word
   audio.addEventListener("loadedmetadata", () => {
     if (current !== mine) return; // a newer sentence replaced this one
-    audio.currentTime = Math.min(startMs / 1000, audio.duration);
+    // startFrac: a word clicked before this sentence was ever played, as a share of its length
+    audio.currentTime = startFrac ? startFrac * audio.duration : Math.min(startMs / 1000, audio.duration);
     audio.play().catch((e) => send("error", { message: `Audio playback failed: ${e.message}` }));
   }, { once: true });
 }

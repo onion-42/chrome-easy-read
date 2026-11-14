@@ -9,7 +9,7 @@ async function fakeVoices(sw, { autoEnd }) {
   await sw.evaluate((auto) => {
     self.__spoken = [];
     const fake = (engine) => (msg, tab, send) => {
-      self.__spoken.push({ engine, text: msg.text, lang: msg.lang, rate: msg.rate });
+      self.__spoken.push({ engine, text: msg.text, lang: msg.lang, rate: msg.rate, startFrac: msg.startFrac });
       send({ event: "start", durationMs: 600 });
       if (auto) setTimeout(() => send({ event: "end" }), 150);
     };
@@ -26,6 +26,33 @@ async function startReading(sw, url, fromContext = false) {
 }
 
 const spoken = (sw) => sw.evaluate(() => self.__spoken);
+
+/* a real left click on the second letter of one word of a paragraph (bold word starts split words into nodes) */
+async function clickWord(page, selector, word) {
+  const at = await page.evaluate(({ sel, w }) => {
+    const el = document.querySelector(sel);
+    let left = el.textContent.indexOf(w) + 1;
+    if (left < 1) throw new Error("word not found: " + w);
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    while (walker.nextNode()) {
+      const n = walker.currentNode;
+      if (left >= n.nodeValue.length) { left -= n.nodeValue.length; continue; }
+      const r = document.createRange();
+      r.setStart(n, left); r.setEnd(n, left + 1);
+      n.parentElement.scrollIntoView({ block: "nearest" });
+      const box = r.getBoundingClientRect();
+      return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+    }
+    throw new Error("word not found: " + w);
+  }, { sel: selector, w: word });
+  await page.mouse.click(at.x, at.y);
+}
+/* the reading block scrolls into view smoothly: wait until the page stops moving before aiming a click */
+async function settled(page) {
+  let last = -1;
+  await expect.poll(async () => { const y = await page.evaluate(() => scrollY); const same = y === last; last = y; return same; },
+    { intervals: [150] }).toBe(true);
+}
 
 async function setup(context, sw, server, reader = { engine: "builtin" }) {
   const page = await context.newPage();
@@ -139,3 +166,49 @@ test("start point: right-clicked paragraph, then selection; easy-read turns on f
   await startReading(sw, url);
   await expect.poll(async () => (await spoken(sw)).at(-1)?.text).toContain("Как показали");
 });
+
+test("start point: reading starts at the left-clicked word, with the focus highlight off", async ({ context, sw, server }) => {
+  const { page, url } = await setup(context, sw, server);
+  await fakeVoices(sw, { autoEnd: false });
+
+  await clickWord(page, "#p1", "cohorts");
+  await startReading(sw, url);
+  await expect.poll(async () => (await spoken(sw))[0]?.text).toMatch(/^cohorts link it to the gut microbiome/);
+  await expect(page.locator("#p1")).toHaveClass(/er-reading/);
+  await expect(page.locator("#er-reader .er-word")).toHaveText("cohorts");
+});
+
+test("clicking a word while reading jumps there, forwards and back", async ({ context, sw, server }) => {
+  const { page, url } = await setup(context, sw, server);
+  await fakeVoices(sw, { autoEnd: false });
+  await page.locator("#p3").dispatchEvent("contextmenu"); // no native menu left open over the page
+  await startReading(sw, url, true); // reading starts at #p3, so #p1 is before the collected text
+  await expect(page.locator("#p3")).toHaveClass(/er-reading/); // ...and the page starts scrolling to it
+
+  await settled(page);
+  await clickWord(page, "#p1", "blockade"); // back: the text is collected again from this paragraph
+  await expect.poll(async () => (await spoken(sw)).at(-1)?.text).toMatch(/^blockade varies widely/);
+  await expect(page.locator("#p1")).toHaveClass(/er-reading/);
+  await settled(page);
+  await clickWord(page, "#p2", "restored"); // forward, inside the collected text
+  await expect.poll(async () => (await spoken(sw)).at(-1)?.text).toMatch(/^restored response in mice/);
+  await settled(page);
+  await clickWord(page, "#p1", "blockade");
+  await expect.poll(async () => (await spoken(sw)).at(-1)?.text).toMatch(/^blockade varies widely/);
+
+  const count = (await spoken(sw)).length;
+  await page.locator("#er-reader").getByRole("button", { name: "Next sentence" }).click();
+  await expect.poll(async () => (await spoken(sw)).length).toBe(count + 1); // a bar button is not a jump
+  await expect.poll(async () => (await spoken(sw)).at(-1)?.text).toMatch(/^Several cohorts/);
+});
+
+test("the local voice starts inside the sentence at the clicked word", async ({ context, sw, server }) => {
+  const { page, url } = await setup(context, sw, server, { engine: "local" });
+  await fakeVoices(sw, { autoEnd: false });
+
+  await clickWord(page, "#p1", "microbiome");
+  await startReading(sw, url);
+  await expect.poll(async () => (await spoken(sw))[0]?.text).toMatch(/^Several cohorts/); // the whole sentence is synthesised
+  expect((await spoken(sw))[0].startFrac).toBeGreaterThan(0.5);                            // ...and played from the word
+});
+

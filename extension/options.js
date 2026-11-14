@@ -36,6 +36,7 @@ function fill(o) {
   form.deepseekModel.value = o.deepseekModel;
   form.translateTo.value = o.translateTo;
   form.readCitations.checked = o.readCitations;
+  form.readFigureRefs.checked = o.readFigureRefs;
   form.builtinOnly.value = o.builtinOnly;
 }
 
@@ -54,6 +55,7 @@ function read() {
     deepseekModel: form.deepseekModel.value.trim() || READER_DEFAULTS.deepseekModel,
     translateTo: form.translateTo.value.trim() || READER_DEFAULTS.translateTo,
     readCitations: form.readCitations.checked,
+    readFigureRefs: form.readFigureRefs.checked,
     builtinOnly: form.builtinOnly.value,
   };
 }

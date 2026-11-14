@@ -226,9 +226,9 @@ async function toOffscreen(type) {
   await chrome.runtime.sendMessage({ target: "offscreen", type });
 }
 
-async function playInOffscreen(id, tabId, { data, sampleRate }, rate, startMs = 0) {
+async function playInOffscreen(id, tabId, { data, sampleRate }, rate, startMs = 0, startFrac = 0) {
   await ensureOffscreen();
-  await chrome.runtime.sendMessage({ target: "offscreen", type: "play", id, tabId, data, sampleRate, rate, startMs });
+  await chrome.runtime.sendMessage({ target: "offscreen", type: "play", id, tabId, data, sampleRate, rate, startMs, startFrac });
 }
 
 /* each engine: (msg, tab, send) -> speaks msg.text and reports start / word / end / error through send */
@@ -244,7 +244,7 @@ const engines = {
     const audio = localAudio(msg.text, lang, msg.opts);
     (msg.next ?? []).forEach((text) => localAudio(text, lang, msg.opts)); // prefetch while this one plays
     const result = await audio;
-    if (latestSpeech === msg.id) await playInOffscreen(msg.id, tab.id, result, msg.rate, msg.startMs);
+    if (latestSpeech === msg.id) await playInOffscreen(msg.id, tab.id, result, msg.rate, msg.startMs, msg.startFrac);
   },
 };
 
@@ -312,7 +312,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
   else if (msg.type === "audio-event") {
     if (msg.tabId != null) relayAudioEvent(msg).catch((e) => console.debug("easy-read: tab gone, audio event dropped", e));
   } else if (msg.type === "reader-options") {
-    loadReaderOptions().then((o) => respond({ rate: o.rate, readCitations: o.readCitations, rates: RATES }));
+    loadReaderOptions().then((o) => respond({ rate: o.rate, readCitations: o.readCitations, readFigureRefs: o.readFigureRefs, rates: RATES }));
     return true;
   } else if (msg.type === "zotero") {
     zotero(msg).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));

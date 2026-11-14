@@ -20,6 +20,12 @@
   var PAGE = "(?:с|c|p|pp|S)\\.\\s*\\d+(?:\\s*[-–—]\\s*\\d+)?";
   var NUMS = "\\d+[a-z]?(?:\\s*[-–—,;]\\s*\\d+[a-z]?)*";
   var SUP = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+  /* one figure / table reference: "Fig. 2a", "Figure 1B, C", "Supplementary Fig. S4", "Figs. 2 and 3" */
+  var PANELS = "(?:\\s*[,–—-]\\s*[A-Za-z](?![A-Za-z]))*";
+  var FIGNUM = "S?\\d+[A-Za-z]?" + PANELS;
+  var FIG = "(?:(?:Supplementary|Suppl\\.?|Supporting|Extended\\s+Data|Source\\s+Data)\\s+)?" +
+    "(?:Fig(?:ure)?s?\\.?|Tables?|Tab\\.|Movies?|Videos?)\\s*" + FIGNUM +
+    "(?:\\s*(?:,|and|&|[–—-])\\s*" + FIGNUM + ")*";
 
   /* [kind, regex]; on overlapping matches the earlier start, then the longer one, then the earlier rule wins */
   var RULES = [
@@ -30,6 +36,8 @@
     ["cite", /\[(?:citation needed|clarification needed|note \d+|[a-z])\]/giu],                     // Wikipedia
     ["cite", new RegExp("\\(" + PREFIX + AUTH + "(?:\\s*;\\s*" + PREFIX + AUTH + ")*\\)", "gu")],   // (Smith et al., 2020)
     ["cite", new RegExp("(?<=(?:et\\s+al\\.|и\\s+др\\.|" + NAME + ")\\s)\\(" + YEAR + "(?:\\s*[,;]\\s*" + YEAR + ")*\\)", "gu")], // Smith (2020)
+    /* only a bracket holding nothing but figure / table references: "(n = 5; Fig. 2a)" is still read */
+    ["fig", new RegExp("\\(\\s*" + PREFIX + FIG + "(?:\\s*(?:[;,]|,?\\s*and)\\s*" + FIG + ")*\\s*\\)", "gu")],
     /* mice¹² is a citation; 10⁶, m², metres², (a+b)² are not: a lone ² or ³ stays a unit / power */
     ["cite", new RegExp("(?<=(?:\\p{L}{3,}|[.,;:]))(?![²³](?![" + SUP + "⁻,]))[" + SUP + "]+(?:[⁻,][" + SUP + "]+)*", "gu")],
     ["mark", /(?<=[\p{L}\p{N}.,;:)])[*†‡§¶]+/gu]                                                     // author*
@@ -43,6 +51,7 @@
   function sayFor(kind, text, opts) {
     if (kind === "url") return domainOf(text);
     if (kind === "cite" && opts.readCitations) return text;
+    if (kind === "fig" && opts.readFigureRefs) return text;
     return "";
   }
 
