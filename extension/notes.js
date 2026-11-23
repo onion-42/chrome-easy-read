@@ -1,7 +1,8 @@
 /* notes.js: notes on the article being read. A note = quote + comment, stored in Zotero as a child note of
  * the paper (the service worker talks to Zotero). Quotes are highlighted with the CSS Custom Highlight API,
  * so the page's DOM is never changed. Injected after reader.js, in the same isolated world; the PDF viewer
- * loads it too and offers window.__erDoc (what is open) and window.__erPdf (save the file into the vault). */
+ * loads it too and offers window.__erDoc (what is open), window.__erPdf (save the file into the vault) and
+ * window.__erView (text view or PDF view; in PDF view quotes live in the text layers of the pages). */
 (function () {
   "use strict";
   if (window.__easyReadNotes && window.__easyReadNotes.open) return; // (a page element with this id is not us)
@@ -16,6 +17,7 @@
   // for the previous document must never be applied to (or saved as) the new one
   var viewerDoc = typeof window.__erDoc === "function" ? window.__erDoc : null;
   var viewerPdf = window.__erPdf && typeof window.__erPdf.save === "function" ? window.__erPdf : null;
+  var viewerView = window.__erView && typeof window.__erView.mode === "function" ? window.__erView : null;
 
   var css = doc.createElement("style");
   css.textContent = [
@@ -74,6 +76,10 @@
     var node = sel && sel.anchorNode;
     var block = node && (node.nodeType === 1 ? node : node.parentElement);
     if (block && block.closest(".er-ui")) return { quote: "", page: null, full: "" }; // our own panel is not the article
+    var pdfPage = block && block.closest(".er-pdf-page");    // PDF view: the page is the box around the text layer,
+    if (pdfPage) {                                            // and the line ends of the page are not paragraphs
+      return { quote: full.replace(/\s*\n\s*/g, " ").slice(0, MAX_QUOTE), page: pdfPage.dataset.page, full: full };
+    }
     block = block && block.closest("p, li, h2, h3, h4");
     var page = null, e = block;                              // nearest page marker above the block (PDF viewer)
     while (e && page == null) {
@@ -278,7 +284,11 @@
 
   function rangeIn(block, start, length, P) {
     var map = P.normIndexMap(block.textContent);
-    var from = map[start], to = map[start + length - 1] + 1;
+    return rangeRaw(block, map[start], map[start + length - 1] + 1);
+  }
+
+  /* from / to: indices in block.textContent */
+  function rangeRaw(block, from, to) {
     var walker = doc.createTreeWalker(block, NodeFilter.SHOW_TEXT);
     var range = doc.createRange(), seen = 0, node, begun = false;
     while ((node = walker.nextNode())) {
@@ -290,15 +300,52 @@
     return null;
   }
 
+  /* PDF view: a text layer has no spaces between its lines and keeps the hyphens of broken words, so the
+   * quote and the page are compared without whitespace and hyphens. */
+  var LOOSE = /[\s\u00ad\u2010\u2011-]/g;
+  var LOOSE_PROBE = 60, LOOSE_MIN = 10; // a long quote may differ near its end: its start is tried too
+
+  /* -> { chars: the text without whitespace and hyphens, idx: where each of those characters is in raw } */
+  function loose(raw) {
+    var idx = [], chars = [];
+    for (var i = 0; i < raw.length; i++) {
+      LOOSE.lastIndex = 0;
+      if (!LOOSE.test(raw[i])) { idx.push(i); chars.push(raw[i]); }
+    }
+    return { chars: chars.join(""), idx: idx };
+  }
+
+  /* -> { from, to } in the raw text behind `text`, or null */
+  function locateLoose(text, quote) {
+    var q = quote.replace(LOOSE, "");
+    var probes = q.length > LOOSE_PROBE ? [q, q.slice(0, LOOSE_PROBE)] : [q];
+    for (var i = 0; i < probes.length; i++) {
+      if (!probes[i] || (i > 0 && probes[i].length < LOOSE_MIN)) continue;
+      var at = text.chars.indexOf(probes[i]);
+      if (at >= 0) return { from: text.idx[at], to: text.idx[at + probes[i].length - 1] + 1 };
+    }
+    return null;
+  }
+
+  function rangeInLayers(layers, texts, quote) {
+    for (var i = 0; i < layers.length; i++) {
+      var hit = locateLoose(texts[i], quote);
+      if (hit) return rangeRaw(layers[i], hit.from, hit.to);
+    }
+    return null;
+  }
+
   async function paint() {
     if (!window.CSS || !CSS.highlights) return;
     var P = await shared();
-    var blocks = reader.blocks();
-    var texts = blocks.map(function (b) { return b.textContent; });
+    var pdf = !!viewerView && viewerView.mode() === "pdf";
+    var blocks = pdf ? viewerView.layers() : reader.blocks();
+    var texts = blocks.map(function (b) { return pdf ? loose(b.textContent) : b.textContent; });
     var ranges = [];
     st.notes.forEach(function (n) {
-      var hit = n.quote && P.locateQuote(texts, n.quote);
-      var range = hit && rangeIn(blocks[hit.block], hit.start, hit.length, P);
+      if (!n.quote) return;
+      var hit = pdf ? null : P.locateQuote(texts, n.quote);
+      var range = pdf ? rangeInLayers(blocks, texts, n.quote) : hit && rangeIn(blocks[hit.block], hit.start, hit.length, P);
       if (range) { range.noteKey = n.key; ranges.push(range); }
     });
     st.ranges = ranges;
@@ -390,6 +437,7 @@
   window.__easyReadNotes = {
     at: noteAt, // reader.js: a click on a note opens it and is not a jump
     open: open, refresh: refresh,
+    repaint: function () { return paint().then(function () { if (!panel.hidden) render(); }); }, // the viewer changed its view
     mount: function (node) { extraEl.appendChild(node); },
     quote: function () { return selectionQuote().full || st.pending.full || ""; }, // the whole selection, never shortened
     fill: function (text) { input.value = (input.value ? input.value + "\n\n" : "") + text; input.focus(); },

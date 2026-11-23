@@ -1,5 +1,5 @@
-// easy-read PDF viewer: the PDF's text as calm HTML (easy-read + reading aloud), the real page on demand,
-// and an optional clean-up (DeepSeek for the text, Gemini for scans). Opened as viewer.html?file=<url>, or with "Open a PDF…" / drag and drop.
+// easy-read PDF viewer: the PDF's text as calm HTML (easy-read + reading aloud), the real pages with selectable
+// text ("PDF" button; notes work in both views), and an optional clean-up (DeepSeek for the text, Gemini for scans). Opened as viewer.html?file=<url>, or with "Open a PDF…" / drag and drop.
 import * as pdfjs from "./vendor/pdfjs/build/pdf.min.mjs";
 import { pageToItems, reflow, drawScale } from "./pdf-text.js";
 import { cleanPdf, cleanText, blocksToText, markdownToBlocks } from "./pdf-clean.js";
@@ -8,12 +8,16 @@ import { siteKey, matchesDomain, parseDomains } from "./site.js";
 import { prepareHost } from "./host.js";
 import { getVault, permission, keepPdf, openPdf as openVaultPdf } from "./vault-pdf.js";
 
+const { TextLayer } = pdfjs;
+
 const PROFILE_KEY = "settings";
 const SAVE_DELAY_MS = 400;
 const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js", "assist-ui.js"];
 const ID_TEXT = 4000;      // characters of the first page searched for a DOI
 const CACHE_KEY = "pdfClean";
 const CACHE_SIZE = 10;     // cleaned PDFs kept, so reopening one costs nothing
+const VIEW_KEY = "pdfView";  // storage.local: "text" | "pdf", the view used last
+const MAX_PAGE_WIDTH = 960; // CSS pixels of a page in PDF view
 const MIN_TEXT = 40;       // fewer characters than this in the whole PDF: it is a scan
 const LANG_SAMPLE = 3000;  // characters used to guess the language
 
@@ -29,8 +33,12 @@ const DOC_OPTIONS = {
 const $ = (id) => document.getElementById(id);
 const article = $("text");
 const cleanBtn = $("clean");
+const pagesEl = $("pages");
+const viewBtn = $("view");
 // task: the pdf.js loading task (it owns the document); source: { url, name }; hash: SHA-256 of the bytes
-const state = { task: null, doc: null, bytes: null, hash: null, source: null, local: [], showing: "local" };
+// view: "text" | "pdf"; built: the pages of this document exist in #pages; seen: their IntersectionObserver
+const state = { task: null, doc: null, bytes: null, hash: null, source: null, local: [], showing: "local",
+  view: "text", built: false, seen: null };
 
 // the tests swap these for fakes; everything else calls them through here
 window.easyReadViewer = {
@@ -48,6 +56,11 @@ window.__erDoc = () => ({
   isPdf: true,
 });
 window.__erPdf = { save: (slug, interactive) => keepPdf(slug, state.bytes, { interactive }) };
+// for notes.js: in PDF view a quote is searched and highlighted in the text layers of the pages
+window.__erView = {
+  mode: () => state.view,
+  layers: () => [...pagesEl.querySelectorAll(".textLayer")],
+};
 
 function setState(s) { document.body.dataset.state = s; }
 function status(text) { $("status").textContent = text; }
@@ -141,8 +154,8 @@ function pageMarker(n) {
   return frag;
 }
 
-async function drawPage(n, cssWidth) {
-  const page = await state.doc.getPage(n);
+async function drawPage(n, cssWidth, doc = state.doc) {
+  const page = await doc.getPage(n);
   const base = page.getViewport({ scale: 1 });
   const viewport = page.getViewport({ scale: drawScale(base.width, base.height, cssWidth, window.devicePixelRatio || 1) });
   const canvas = el("canvas");
@@ -167,6 +180,117 @@ async function togglePage(n, button, figure) {
     console.error(`easy-read viewer: page ${n} could not be drawn`, e);
     figure.append(el("span", `Page ${n} could not be drawn: ${e.message}`));
   }
+}
+
+/* ---------- PDF view: every page as a canvas with pdf.js's text layer on top ---------- */
+
+function dropPages() {
+  state.seen?.disconnect();
+  state.seen = null;
+  state.built = false;
+  pagesEl.textContent = "";
+}
+
+async function paintCanvas(box) {
+  const n = Number(box.dataset.page);
+  const doc = state.doc; // another PDF may be opened while this page is drawn: it gets neither the canvas nor the error
+  try {
+    const canvas = await drawPage(n, box.clientWidth, doc);
+    if (state.doc === doc && box.isConnected) box.prepend(canvas);
+  } catch (e) {
+    console.error(`easy-read viewer: page ${n} could not be drawn`, e);
+    if (state.doc === doc) status(`Page ${n} could not be drawn: ${e.message}`);
+  }
+}
+
+/* The text layers of all pages are made at once, so notes, "go to the note" and Ctrl+F cover the whole
+ * document; the canvases are drawn when a page comes near the window. -> false when another PDF took over. */
+async function buildPages() {
+  const doc = state.doc;
+  dropPages();
+  const width = Math.min(pagesEl.clientWidth || MAX_PAGE_WIDTH, MAX_PAGE_WIDTH);
+  const seen = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      seen.unobserve(e.target);
+      paintCanvas(e.target);
+    }
+  }, { rootMargin: "600px" });
+  state.seen = seen;
+  for (let n = 1; n <= doc.numPages; n++) {
+    const page = await doc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    const viewport = page.getViewport({ scale: width / base.width });
+    const box = el("div");
+    box.className = "er-pdf-page";
+    box.dataset.page = String(n);
+    box.style.width = `${Math.floor(viewport.width)}px`;
+    box.style.height = `${Math.floor(viewport.height)}px`;
+    box.style.setProperty("--total-scale-factor", String(viewport.scale));
+    const layer = el("div");
+    layer.className = "textLayer";
+    box.append(layer);
+    const text = new TextLayer({ textContentSource: await page.getTextContent(), container: layer, viewport });
+    await text.render();
+    if (state.doc !== doc || state.seen !== seen) return false;
+    // inline !important: the only thing that outranks easy-read's font rule, and each line has its own font
+    for (const div of text.textDivs) div.style.setProperty("font-family", div.style.fontFamily, "important");
+    pagesEl.append(box);
+    seen.observe(box);
+  }
+  state.built = true;
+  return true;
+}
+
+/* the page at the top of the window, so that the switch lands on the same page of the other view */
+function currentPage() {
+  const marks = state.view === "pdf" ? pagesEl.querySelectorAll(".er-pdf-page") : article.querySelectorAll(".er-page");
+  const top = document.querySelector(".bar").getBoundingClientRect().bottom + 8;
+  let page = 1;
+  for (const m of marks) {
+    if (m.getBoundingClientRect().top > top) break;
+    page = Number(m.dataset.page);
+  }
+  return page;
+}
+
+function showView(view) {
+  state.view = view;
+  document.body.dataset.view = view;
+  article.hidden = view === "pdf";
+  // the reader skips aria-hidden text: reading aloud belongs to the text view
+  if (view === "pdf") article.setAttribute("aria-hidden", "true");
+  else article.removeAttribute("aria-hidden");
+  pagesEl.hidden = view !== "pdf";
+  viewBtn.textContent = view === "pdf" ? "Текст" : "PDF";
+  viewBtn.setAttribute("aria-pressed", String(view === "pdf"));
+  cleanBtn.hidden = view === "pdf"; // the clean-up changes the text view only
+}
+
+async function setView(view, { remember = true } = {}) {
+  if (!state.doc) return;
+  const doc = state.doc;
+  const page = currentPage();
+  showView(view);
+  if (view === "pdf" && !state.built) {
+    status("Drawing the pages…");
+    try {
+      if (!(await buildPages())) return; // another PDF was opened meanwhile; its own setView follows
+      status("");
+      if (state.view !== view) return;   // switched back to the text while the pages were built: that call did the rest
+    } catch (e) {
+      console.error("easy-read viewer: the PDF pages could not be built", e);
+      if (state.doc !== doc) return;
+      dropPages();
+      showView("text");
+      status(`The PDF pages could not be shown: ${e.message}`);
+      return;
+    }
+  }
+  const mark = view === "pdf" ? pagesEl.querySelector(`.er-pdf-page[data-page="${page}"]`) : article.querySelector(`.er-page[data-page="${page}"]`);
+  if (page > 1 && mark) mark.scrollIntoView({ block: "start" });
+  if (remember) await chrome.storage.local.set({ [VIEW_KEY]: view });
+  await window.__easyReadNotes?.repaint(); // the highlights of the notes move to the view that is shown
 }
 
 /* ---------- loading ---------- */
@@ -213,10 +337,14 @@ async function openPdf(bytes, source) {
     Object.assign(state, { task, doc, bytes, hash, local: reflow(pages), showing: "local",
       source: { ...source, name: title || source.name } });
     previous?.destroy().catch((e) => console.warn("easy-read viewer: closing the previous PDF failed", e));
+    dropPages();
+    showView("text");
+    viewBtn.disabled = false;
     showSource();
     show(state.local);
     await setLanguage();
     await announceDoc();
+    if ((await chrome.storage.local.get(VIEW_KEY))[VIEW_KEY] === "pdf") await setView("pdf", { remember: false });
     status(isScan(state.local) ? "This PDF has no text layer (it is a scan). “Read this scan with Gemini” can read it." : "");
     setState("ready");
   } catch (e) {
@@ -383,6 +511,7 @@ async function cleanUp() {
 /* ---------- wiring ---------- */
 
 cleanBtn.addEventListener("click", () => cleanUp());
+viewBtn.addEventListener("click", () => setView(state.view === "pdf" ? "text" : "pdf"));
 chrome.storage.onChanged.addListener((changes, area) => { // the "do not send" box was ticked or cleared in the notes panel
   if (area === "local" && changes[LOCAL_ONLY]) updateCleanButton().catch((e) => console.warn("easy-read viewer: clean button not updated", e));
 });

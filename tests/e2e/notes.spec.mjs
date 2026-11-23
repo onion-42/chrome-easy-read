@@ -272,3 +272,50 @@ test("reading list: a paper is removed from the list after a confirmation; the Z
   const kept = (await zItems(sw)).find((it) => it.key === "SEEDED03");
   expect(kept.data.collections).toEqual(["OTHER"]);
 });
+
+test("in PDF view: a note on a selection over two lines gets its page, and is highlighted in both views", async ({ context, sw, server }) => {
+  await fakeZotero(sw);
+  await sw.evaluate((p) => chrome.storage.sync.set({ settings: p }), PROFILE);
+  const page = await context.newPage();
+  await page.goto(viewerUrl(sw, `?file=${encodeURIComponent(`${server}/paper.pdf`)}`));
+  await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
+  await page.locator("#view").click();
+  await expect(page.locator("body")).toHaveAttribute("data-view", "pdf");
+  await expect(page.locator("#status")).toBeEmpty(); // "Drawing the pages…" is over
+
+  const picked = await page.evaluate(() => {
+    const spans = [...document.querySelectorAll("#pages .textLayer span")]
+      .filter((s) => !s.classList.contains("markedContent") && !s.classList.contains("er-bw") && s.textContent.trim());
+    const i = spans.findIndex((s) => s.textContent.includes("Fecal transplants"));
+    const range = document.createRange();
+    range.setStart(spans[i], 0);
+    range.setEnd(spans[i + 1], spans[i + 1].childNodes.length);
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    return { text: getSelection().toString(), page: spans[i].closest(".er-pdf-page").dataset.page };
+  });
+  expect(picked.text).toMatch(/\n/); // two lines of the page
+
+  await openNotes(sw, "/viewer.html");
+  const panel = page.locator("#er-notes");
+  await expect(panel.locator(".er-n-quote").first()).toContainText("Fecal transplants");
+  await panel.getByLabel("Текст заметки").fill("заметка в режиме PDF");
+  await panel.getByLabel("Текст заметки").press("Control+Enter");
+  await expect(panel.locator(".er-n-item")).toHaveCount(1);
+
+  const [note] = await notesOf(sw);
+  expect(note.data.note).toContain("Fecal transplants");
+  expect(note.data.note).toMatch(new RegExp(`Стр\\. ${picked.page} · http`));
+  expect(note.data.note).not.toMatch(/<blockquote>(<p>[^<]*<\/p>){2}/); // one quote, not one per line
+
+  const inPdf = await highlights(page);
+  expect(inPdf).toHaveLength(1);
+  expect(inPdf[0].replace(/\s/g, "")).toContain("Fecaltransplants");
+  await expect(panel).not.toContainText("цитата не найдена");
+
+  await panel.getByRole("button", { name: "Закрыть заметки" }).click(); // the open panel lies over the toolbar
+  await page.locator("#view").click();
+  await expect(page.locator("body")).toHaveAttribute("data-view", "text");
+  await expect.poll(() => highlights(page)).toHaveLength(1);
+  expect((await highlights(page))[0]).toContain("Fecal transplants");
+});

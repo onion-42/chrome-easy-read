@@ -254,3 +254,71 @@ test("Open a PDF… loads a file from the computer", async ({ context, sw }) => 
   await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
   await expect(page.locator("article")).toContainText("Fecal transplants restored response in mice.");
 });
+
+/* ---------- PDF view: the real pages with a text layer ---------- */
+
+const leafSpans = (page) => page.evaluate(() =>
+  [...document.querySelectorAll("#pages .textLayer span")]
+    .filter((s) => !s.classList.contains("markedContent") && !s.classList.contains("er-bw") && s.textContent.trim())
+    .slice(0, 25)
+    .map((s) => { // relative to the page: the toolbar above changes its height with easy-read's font
+      const r = s.getBoundingClientRect(), b = s.closest(".er-pdf-page").getBoundingClientRect();
+      return [r.left - b.left, r.top - b.top, r.width, r.height].map(Math.round);
+    }));
+
+// the same boxes, give or take a pixel of rounding
+const sameBoxes = (a, b) => a.length === b.length && a.every((box, i) => box.every((v, k) => Math.abs(v - b[i][k]) <= 1));
+
+test("the PDF button shows the real pages with a text layer, Текст goes back, and the view is remembered", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server);
+  const view = page.locator("#view");
+  await expect(view).toHaveText("PDF");
+  await view.click();
+  await expect(page.locator("body")).toHaveAttribute("data-view", "pdf");
+  await expect(page.locator("article")).toBeHidden();
+  await expect.poll(() => page.locator(".er-pdf-page").count()).toBeGreaterThanOrEqual(2); // built page by page
+  await expect(page.locator(".er-pdf-page .textLayer").first()).toContainText("Introduction");
+  await expect(page.locator(".er-pdf-page canvas").first()).toBeVisible();
+  await expect(view).toHaveText("Текст");
+
+  await view.click();
+  await expect(page.locator("body")).toHaveAttribute("data-view", "text");
+  await expect(page.locator("article")).toBeVisible();
+  await expect(page.locator("#pages")).toBeHidden();
+
+  await view.click();
+  await expect(page.locator("body")).toHaveAttribute("data-view", "pdf");
+  await page.reload();
+  await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
+  await expect(page.locator("body")).toHaveAttribute("data-view", "pdf");
+  await expect(page.locator(".er-pdf-page .textLayer").first()).toContainText("Introduction");
+});
+
+test("in PDF view the text layer keeps its place under easy-read's font, spacing, size and bold word starts", async ({ context, sw, server }) => {
+  const page = await openViewer(context, sw, server, { profile: { font: "od", bionic: true, ls: 0.08, lh: 2, size: 1.3, scheme: "dark" } });
+  await page.locator("#view").click();
+  await expect(page.locator("#status")).toBeEmpty(); // "Drawing the pages…" is over
+  await expect(page.locator(".er-pdf-page .textLayer").first()).toContainText("Introduction");
+  await expect(page.locator("html")).toHaveClass(/er-font/);
+  const styled = await leafSpans(page);
+  expect(styled.length).toBeGreaterThan(10);
+  await page.evaluate(() => window.__easyRead.setEnabled(false));
+  await expect(page.locator("html")).not.toHaveClass(/er-font/);
+  expect(sameBoxes(await leafSpans(page), styled)).toBe(true);
+  // and the same when the pages are built with no easy-read options at all: pdf.js measures the text on a
+  // canvas of its own, which easy-read's letter spacing must not reach
+  await sw.evaluate(() => chrome.storage.sync.set({ settings: {} }));
+  await page.reload();
+  await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
+  await expect(page.locator("body")).toHaveAttribute("data-view", "pdf");
+  await expect(page.locator("#status")).toBeEmpty();
+  await expect(page.locator(".er-pdf-page .textLayer").first()).toContainText("Introduction");
+  expect(sameBoxes(await leafSpans(page), styled)).toBe(true);
+  // every line of text lies inside its page
+  const inside = await page.evaluate(() => [...document.querySelectorAll("#pages .er-pdf-page")].every((box) => {
+    const b = box.getBoundingClientRect();
+    return [...box.querySelectorAll(".textLayer span")].filter((s) => !s.classList.contains("markedContent") && s.textContent.trim())
+      .every((s) => { const r = s.getBoundingClientRect(); return r.left >= b.left - 2 && r.right <= b.right + 2 && r.top >= b.top - 2 && r.bottom <= b.bottom + 2; });
+  }));
+  expect(inside).toBe(true);
+});

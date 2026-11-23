@@ -45,6 +45,32 @@
     figure canvas { display: block; width: 100%; height: auto; }
     .empty { margin-top: 18vh; text-align: center; color: var(--soft); }
     body.drag main { outline: 3px dashed var(--accent); outline-offset: 8px; border-radius: 12px; }
+    /* PDF view: the real pages, each a canvas with pdf.js's text layer on top. The #pages id and !important
+       outrank easy-read's font / spacing / colour rules: the text layer must keep the PDF's own geometry. */
+    body[data-view="pdf"] main { max-width: 62rem; }
+    #pages[hidden], #view[hidden], #clean[hidden] { display: none; }
+    #pages .er-pdf-page { position: relative; margin: 0 auto 24px; background-color: #fff !important;
+      border: 1px solid var(--line); box-shadow: var(--shadow); --scale-round-x: 1px; --scale-round-y: 1px; }
+    #pages .er-pdf-page canvas { display: block; width: 100%; height: 100%; }
+    #pages .textLayer { position: absolute; inset: 0; overflow: clip; text-align: initial; line-height: 1 !important;
+      letter-spacing: normal !important; word-spacing: normal !important; text-size-adjust: none;
+      forced-color-adjust: none; transform-origin: 0 0; z-index: 0; --min-font-size: 1;
+      --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+      --min-font-size-inv: calc(1 / var(--min-font-size)); }
+    #pages .textLayer :is(span, br) { color: transparent !important; position: absolute; white-space: pre; cursor: text;
+      transform-origin: 0 0; line-height: 1 !important; letter-spacing: normal !important; word-spacing: normal !important; }
+    #pages .textLayer > :not(.markedContent),
+    #pages .textLayer .markedContent span:not(.markedContent):not(.er-bw) { z-index: 1; --font-height: 0;
+      font-size: calc(var(--text-scale-factor) * var(--font-height)) !important; --scale-x: 1; --rotate: 0deg;
+      transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+    #pages .textLayer .markedContent { display: contents; }
+    /* bold word starts wrap the words of a line in .er-bw > b.er-b: they stay plain inline text here */
+    #pages .textLayer .er-bw { position: static; transform: none; font-size: inherit !important; }
+    #pages .textLayer :is(.er-bw, .er-b) { font-family: inherit !important; font-weight: inherit; }
+    /* pdf.js measures each line on a canvas of its own (a child of body) to fit the line to the page; easy-read's
+       letter spacing would reach that canvas and make every line too narrow. :not(#_) only adds weight. */
+    body > canvas:not(#_) { letter-spacing: normal !important; word-spacing: normal !important; }
+    #pages .textLayer ::selection { background: color-mix(in srgb, AccentColor, transparent 50%); color: transparent; }
     @media (max-width: 560px) { .bar { grid-template-columns: 1fr; } .actions { justify-content: flex-start; } }
   </style>
 </head>
@@ -57,13 +83,14 @@
     <nav class="actions" aria-label="PDF actions">
       <a id="original" target="_blank" rel="noreferrer" hidden>Original ↗</a>
       <a href="reading.html">Reading list</a>
+      <button id="view" type="button" aria-pressed="false" title="Switch between the easy-read text and the real PDF pages" disabled>PDF</button>
       <button id="clean" type="button" class="primary" disabled>Clean up with DeepSeek</button>
       <button id="open" type="button">Open a PDF…</button>
       <input id="file" type="file" accept="application/pdf" hidden>
     </nav>
     <p id="status" role="status"></p>
   </header>
-  <main><article id="text"></article></main>
+  <main><article id="text"></article><div id="pages" hidden></div></main>
   <script type="module" src="viewer.js"></script>
 </body>
 </html>

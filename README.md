@@ -10,7 +10,8 @@ Reading comfort per site, plus reading aloud with subtitles that look the same a
 - **Citations are not read:** `[1, 2]`, `(Smith et al., 2020)`, superscript refs, DOIs and footnote marks are
   skipped by the voice and shown small and faded. URLs are read as their domain.
 - **PDFs too:** a PDF opens as easy-read text (paragraphs, headings, two columns put in order, running headers and
-  line numbers removed), with reading aloud. "Show page" draws the real page for figures and tables;
+  line numbers removed), with reading aloud. The **PDF** button switches to the real pages, where text can be
+  selected and noted as well; "Show page" draws one real page inside the text for figures and tables;
   "Clean up with DeepSeek" tidies a messy PDF; "Read this scan with Gemini" reads a scanned one.
 - **Ask and translate:** in the notes panel, ask Claude a question about the paper you are reading, or
   translate the selected text with DeepSeek. An answer goes into a note with one click.
@@ -62,6 +63,8 @@ macOS and Windows have no systemd. Download the voices with the command in the l
 | Open a PDF link as easy-read text | right-click the link → **Open PDF in easy-read** |
 | A PDF from your computer | in the viewer: **Open a PDF…**, or drag the file in (or allow file URLs, below) |
 | See figures / tables of a page | the **Show page** button at each page marker |
+| Read the PDF as it was printed | **PDF** in the viewer header: the real pages, with text you can select; **Текст** goes back to the same page. The view used last is remembered |
+| Note on the real page | in the PDF view: select text → `Alt+Shift+N`. The note gets the page number and goes to Zotero and the vault like any other note; it is highlighted in both views |
 | Messy PDF | **Clean up with DeepSeek** in the viewer header (kept for the last 10 PDFs) |
 | Scanned PDF (no text) | the same button reads **Read this scan with Gemini** |
 
@@ -165,7 +168,8 @@ tts/local.js    local Piper server request (WAV -> PCM) with plain-language erro
 tts/builtin.js  chrome.tts voices with word events
 offscreen.js    plays the local voice's audio outside the page (no page CSP, speed keeps the pitch)
 options.*       voice settings
-viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", clean-up
+viewer.*        the PDF viewer: PDF.js text -> easy-read page, "Show page", clean-up; the PDF view (each page a
+                canvas with PDF.js's text layer on top, kept out of easy-read's font and spacing by CSS)
 pdf-text.js     pure: PDF text items -> paragraphs / headings (columns, hyphens, running headers, line numbers)
 pdf-clean.js    clean-up requests (DeepSeek: text, Gemini: scans) + Markdown -> plain blocks
 assist.js       Claude question + DeepSeek translation requests, price estimate, plain-language errors
@@ -212,6 +216,10 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - A clean-up asks the model to keep the wording, but nothing checks that it did. "Show local text" brings back
   the text read on this computer.
 - A very long PDF (a whole book) is read completely before the text appears ("Reading page N of M…").
+- PDF view (the real pages): reading aloud, bold word starts and the easy-read font work in the text view only.
+  A quote taken there keeps the page's line-end hyphens ("influ- ence"); it is still found and highlighted in
+  both views. A scanned PDF has no text to select. The open notes panel lies over the right end of the toolbar:
+  close it to reach the **PDF** / **Текст** button.
 - Text added to the page later (feeds, single-page apps) gets bold word starts after an off/on.
 - Settings changed in one tab reach other open tabs on their next reload.
 - Chrome's own pages, the Web Store and the PDF viewer cannot be changed by extensions (badge shows `–`).
