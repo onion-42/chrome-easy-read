@@ -283,11 +283,12 @@
     matsEl.textContent = "";
     matsEl.hidden = !st.materials.length;
     if (matsEl.hidden) return;
+    if (!st.P) { shared().then(renderMaterials, function (e) { console.debug("easy-read notes: no materials block", e); }); return; } // kinds and addresses come from papers.js
     var viewer = chrome.runtime.getURL("viewer.html");
     matsEl.appendChild(doc.createTextNode("Материалы:"));
     st.materials.forEach(function (m) {
-      var href = st.P ? st.P.materialHref(m, viewer) : m.url;
-      var a = link((st.P ? st.P.MATERIAL_KINDS[m.kind] || m.kind : m.kind) + ": " + m.title, href);
+      var href = st.P.materialHref(m, viewer);
+      var a = link((st.P.MATERIAL_KINDS[m.kind] || m.kind) + ": " + m.title, href);
       if (href.indexOf(viewer) === 0) { // a web page cannot open the viewer itself: the service worker does
         a.addEventListener("click", function (e) { e.preventDefault(); chrome.runtime.sendMessage({ type: "open-vault-pdf", path: m.path }); });
       }
@@ -306,7 +307,7 @@
     if (n.summary) text.insertBefore(el("strong", { text: "★ Вывод: " }), text.firstChild);
     item.appendChild(text);
     if (!found && !notesPage) item.appendChild(el("p", { class: "er-n-soft", text: "цитата не найдена в этом тексте" }));
-    item.addEventListener("click", function () { if (notesPage) { if (n.quote) notesPage.show(n.key); } else scrollToNote(n.key); });
+    item.addEventListener("click", function () { if (notesPage) notesPage.show(n.key, !!n.quote); else scrollToNote(n.key); });
     return item;
   }
 
@@ -383,6 +384,11 @@
     var picked = selectionQuote();
     if (!picked.quote) { open(); return; }
     panel.hidden = false;
+    if (st.busy) { // another request is out: nothing is saved, and the quote is kept in the form
+      st.pending = picked; st.editing = null; st.summary = false; render();
+      say("Заметка ещё не сохранена: шёл другой запрос к Zotero. Цитата в поле, нажми Ctrl+Enter.");
+      return;
+    }
     var res = await run("note", { quote: picked.quote, page: picked.page, comment: "" });
     if (!res) { st.pending = picked; st.editing = null; st.summary = false; render(); return; } // the quote waits in the form
     var made = st.notes.find(function (n) { return n.key === res.made; });

@@ -97,8 +97,8 @@ export async function vaultPathOf(dir, handle) {
 const MAX_SAME_NAMES = 9;
 
 /** Copy a material file into the vault: a PDF to 0_media/papers/, anything else to 1_education/papers/materials/.
- * -> { path, existed }. A file is never overwritten: the same name with the same size is taken as the same
- * file (existed), another file under that name gets "-2", "-3", … */
+ * -> { path, existed }. A file is never overwritten: the same name with the same bytes is the same file
+ * (existed), another file under that name gets "-2", "-3", … */
 export async function saveMaterial(dir, name, bytes) {
   const folder = /\.pdf$/i.test(name) ? PDF_DIR : P.MATERIALS_DIR.split("/");
   const d = await walk(dir, folder, true);
@@ -108,7 +108,10 @@ export async function saveMaterial(dir, name, bytes) {
     const path = [...folder, candidate].join("/");
     try {
       const old = await (await d.getFileHandle(candidate)).getFile();
-      if (old.size === bytes.byteLength) return { path, existed: true };
+      if (old.size === bytes.byteLength) {
+        const was = new Uint8Array(await old.arrayBuffer());
+        if (was.every((b, i) => b === bytes[i])) return { path, existed: true };
+      }
     } catch (e) {
       if (e.name !== "NotFoundError") throw e;
       const w = await (await d.getFileHandle(candidate, { create: true })).createWritable();
@@ -157,8 +160,10 @@ export async function saveNote(dir, { slug, label, key, version, body, summary =
   const path = `${P.NOTES_DIR}/${name}`;
   if ((await readText(dir, notes, name)) !== null) return { path };
   await writeText(dir, notes, name, P.renderNoteFile({ title: P.noteTitle(label, body, summary), paperSlug: slug, body, key, version, summary }));
-  const linked = P.withNoteLink(passport, name.replace(/\.md$/, ""));
-  if (linked !== passport) await writeText(dir, papers, `${slug}.md`, linked);
+  // read again: the sync may have added a line to the paper's note while the note file was being written
+  const now = (await readText(dir, papers, `${slug}.md`)) ?? passport;
+  const linked = P.withNoteLink(now, name.replace(/\.md$/, ""));
+  if (linked !== now) await writeText(dir, papers, `${slug}.md`, linked);
   return { path };
 }
 

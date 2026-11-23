@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { saveNote } from "../extension/vault-pdf.js";
+import { saveNote, saveMaterial } from "../extension/vault-pdf.js";
 import * as P from "../extension/papers.js";
 
 /* an in-memory directory handle: just what vault-pdf.js calls */
@@ -20,7 +20,7 @@ function fakeDir(files = {}, path = "") {
         files[full] = "";
       }
       return {
-        getFile: async () => ({ text: async () => files[full] }),
+        getFile: async () => ({ text: async () => files[full], size: files[full].length, arrayBuffer: async () => files[full].buffer }),
         createWritable: async () => ({ write: async (data) => void (files[full] = data), close: async () => {} }),
       };
     },
@@ -48,4 +48,18 @@ test("saveNote never overwrites a note file, and waits for the sync when the pap
   const empty = fakeDir({});
   assert.deepEqual(await saveNote(empty, NOTE), { reason: "no-passport" });
   assert.deepEqual(Object.keys(empty.files), []);
+});
+
+test("saveMaterial: the same bytes are the same file, other bytes of the same length get the next name", async () => {
+  const dir = fakeDir({});
+  const first = await saveMaterial(dir, "supp.pdf", new Uint8Array([1, 2, 3]));
+  const again = await saveMaterial(dir, "supp.pdf", new Uint8Array([1, 2, 3]));
+  const revised = await saveMaterial(dir, "supp.pdf", new Uint8Array([1, 2, 4]));
+
+  assert.equal(first.existed, false);
+  assert.deepEqual(again, { path: first.path, existed: true });
+  assert.equal(revised.existed, false);
+  assert.notEqual(revised.path, first.path);
+  assert.deepEqual([...dir.files[first.path]], [1, 2, 3]);
+  assert.deepEqual([...dir.files[revised.path]], [1, 2, 4]);
 });

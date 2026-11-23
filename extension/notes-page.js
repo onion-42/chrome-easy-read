@@ -13,7 +13,11 @@ const status = (text) => { document.getElementById("status").textContent = text;
 window.__erDoc = () => ({ key, url: "", title: "", meta: {}, text: "" });
 window.__erNotesPage = {
   /** A click on a note with a quote: show it in the article's tab. */
-  show: async (noteKey) => {
+  show: async (noteKey, hasQuote) => {
+    if (!hasQuote) {
+      status("У этой заметки нет цитаты: показывать в тексте статьи нечего.");
+      return;
+    }
     const res = await chrome.runtime.sendMessage({ type: "notes-show", tab: sourceTab, key: noteKey });
     status(res?.ok ? "" : res?.message || "Вкладка статьи закрыта.");
   },

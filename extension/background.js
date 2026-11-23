@@ -367,6 +367,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     openNotesTab(msg.key, sender.tab).catch((e) => console.error("easy-read: open notes tab failed", e));
   } else if (msg.type === "notes-show") {
     const closed = "Вкладка статьи закрыта. Открой статью из reading list: заметки подсветятся в тексте.";
+    if (!String(sender.url).startsWith(NOTES_PAGE)) return false; // only the notes tab may bring another tab forward
     if (!msg.tab) respond({ ok: false, message: closed });
     else showNote(msg.tab, msg.key).then(() => respond({ ok: true }), (e) => { console.debug("easy-read: the article tab is gone", e); respond({ ok: false, message: closed }); });
     return true;

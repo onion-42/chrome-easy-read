@@ -222,7 +222,8 @@ const obsidianUrl = (vaultName, path) =>
 /** The Zotero child item of a material. target = an address, or a path inside the vault. */
 export function materialItem({ parent, title = "", target, vaultName = "" }) {
   const kind = materialKind(target);
-  const isFile = kind === "pdf" || kind === "note";
+  // an address that ends in .pdf / .md (arxiv.org/pdf/….pdf) is still an address, not a file of the vault
+  const isFile = (kind === "pdf" || kind === "note") && !/^[a-z][a-z0-9+.-]*:/i.test(target);
   return {
     itemType: "attachment",
     linkMode: "linked_url",
@@ -326,6 +327,7 @@ const unescapeHtml = (s) =>
   s.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, "'")
     .replace(/&#(\d+);/g, (m, n) => (Number(n) <= 0x10ffff ? String.fromCodePoint(Number(n)) : m)).replace(/&amp;/g, "&");
 
+const SAFE_HREF = /^(https?:|mailto:|obsidian:|zotero:|#|\/|\.)/i; // any other scheme (javascript:, data:) stays plain text
 const PLAIN_TAGS = ["u", "sub", "sup"]; // tags typed as HTML in markdown: allowed bare, without attributes
 const HIGHLIGHT = "#ffd40080";          // Zotero's yellow highlight in notes
 
@@ -334,7 +336,7 @@ function inlineToHtml(text) {
   const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
   const out = text
     .replace(/`([^`]+)`/g, (_, c) => keep(`<code>${escapeHtml(c)}</code>`))
-    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (_, label, href) => keep(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`));
+    .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (m, label, href) => (SAFE_HREF.test(href) ? keep(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`) : m));
   let html = escapeHtml(out)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
