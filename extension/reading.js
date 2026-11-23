@@ -11,7 +11,17 @@ let groups = [];
 let vault = "";
 let attachTo = null; // the paper waiting for a file from the picker
 const managing = new Set(); // keys of the papers whose materials block is open (kept over a reload of the list)
-const MATERIAL_FILES = [{ description: "PDF и заметки Markdown", accept: { "application/pdf": [".pdf"], "text/markdown": [".md"] } }];
+const MATERIAL_FILES = [{
+  description: "PDF, заметки Markdown, Word, Excel",
+  accept: {
+    "application/pdf": [".pdf"],
+    "text/markdown": [".md"],
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [".docx"],
+    "application/msword": [".doc"],
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"],
+    "application/vnd.ms-excel": [".xls"],
+  },
+}];
 
 function say(text, isError = false) {
   $("status").textContent = text;
@@ -95,11 +105,11 @@ const materialLabel = (m) => `${P.MATERIAL_KINDS[m.kind] || m.kind}: ${m.title}`
 const materialLink = (m) => el("a", { href: P.materialHref(m, VIEWER), target: "_blank", rel: "noreferrer", text: materialLabel(m) });
 
 /** One picked or dropped file becomes a material: a file of the vault is linked where it is, any other file
- * is copied (PDF -> 0_media/papers/, .md -> 1_education/papers/materials/). -> the line for the status. */
+ * is copied (.md -> 1_education/papers/materials/, PDF / Word / Excel -> 0_media/papers/). -> the line for the status. */
 async function addFile(p, dir, handle) {
   const file = await handle.getFile();
   const kind = P.materialKind(file.name);
-  if (kind !== "pdf" && kind !== "note") return `${file.name}: не прикреплён, нужен PDF или .md`;
+  if (!P.isMaterialFile(file.name)) return `${file.name}: не прикреплён, нужен PDF, .md, .docx или .xlsx`;
   const bytes = new Uint8Array(await file.arrayBuffer());
   let path = await vaultPathOf(dir, handle);
   let how = "на месте";
@@ -167,7 +177,7 @@ function manageBox(p) {
     });
     return el("li", {}, [materialLink(m), drop]);
   }));
-  const files = el("button", { type: "button", text: "Добавить файлы…", title: "PDF (supplementary, ответы рецензентам) и заметки .md (транскрипт, заметка о видео); можно несколько" });
+  const files = el("button", { type: "button", text: "Добавить файлы…", title: "PDF (supplementary, ответы рецензентам), заметки .md (транскрипт, заметка о видео), Word .docx и Excel .xlsx; можно несколько" });
   files.addEventListener("click", async () => {
     if (!(await vaultReady())) return;
     if (!window.__pickFiles && !navigator.userActivation.isActive) {

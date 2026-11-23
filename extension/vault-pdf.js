@@ -96,11 +96,12 @@ export async function vaultPathOf(dir, handle) {
 
 const MAX_SAME_NAMES = 9;
 
-/** Copy a material file into the vault: a PDF to 0_media/papers/, anything else to 1_education/papers/materials/.
+/** Copy a material file into the vault: a note (.md) to 1_education/papers/materials/, any other file (PDF, Word,
+ * Excel) to 0_media/papers/, the folder of attachments.
  * -> { path, existed }. A file is never overwritten: the same name with the same bytes is the same file
  * (existed), another file under that name gets "-2", "-3", … */
 export async function saveMaterial(dir, name, bytes) {
-  const folder = /\.pdf$/i.test(name) ? PDF_DIR : P.MATERIALS_DIR.split("/");
+  const folder = /\.md$/i.test(name) ? P.MATERIALS_DIR.split("/") : PDF_DIR;
   const d = await walk(dir, folder, true);
   const dot = name.lastIndexOf(".");
   for (let n = 1; n <= MAX_SAME_NAMES; n++) {

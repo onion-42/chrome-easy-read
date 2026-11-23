@@ -63,3 +63,14 @@ test("saveMaterial: the same bytes are the same file, other bytes of the same le
   assert.deepEqual([...dir.files[first.path]], [1, 2, 3]);
   assert.deepEqual([...dir.files[revised.path]], [1, 2, 4]);
 });
+
+test("saveMaterial: Word and Excel files go next to the PDFs, a note goes to the materials folder", async () => {
+  const dir = fakeDir({});
+  const sheet = await saveMaterial(dir, "lin-2023--table-s1.xlsx", new Uint8Array([1]));
+  const doc = await saveMaterial(dir, "lin-2023--reviewers.docx", new Uint8Array([2]));
+  const note = await saveMaterial(dir, "lin-2023--talk.md", new Uint8Array([3]));
+
+  assert.equal(sheet.path, "0_media/papers/lin-2023--table-s1.xlsx");
+  assert.equal(doc.path, "0_media/papers/lin-2023--reviewers.docx");
+  assert.equal(note.path, "1_education/papers/materials/lin-2023--talk.md");
+});

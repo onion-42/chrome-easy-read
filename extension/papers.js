@@ -187,13 +187,19 @@ export function withNoteLink(text, noteName) {
 
 export const MATERIAL_TAG = "paper-material";
 export const MATERIALS_DIR = "1_education/papers/materials";
-export const MATERIAL_KINDS = { pdf: "PDF", note: "заметка", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" };
+export const MATERIAL_KINDS = { pdf: "PDF", note: "заметка", doc: "документ", sheet: "таблица", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" };
+// kinds that can be a file kept in the vault, by file extension
+const FILE_KINDS = [["pdf", /\.pdf$/i], ["note", /\.md$/i], ["doc", /\.docx?$/i], ["sheet", /\.xlsx?$/i]];
+const fileKind = (name) => FILE_KINDS.find(([, ext]) => ext.test(name))?.[0] || "";
+
+/** Can a file with this name be attached as a material (PDF, .md, Word, Excel)? */
+export const isMaterialFile = (name) => fileKind(name) !== "";
 const VIDEO_HOSTS = ["youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com"];
 
 /** Kind of a material from its address or file name. */
 export function materialKind(target) {
-  if (/\.pdf$/i.test(target)) return "pdf";
-  if (/\.md$/i.test(target)) return "note";
+  const file = fileKind(target);
+  if (file) return file;
   let host = "", path = "";
   try {
     const u = new URL(target);
@@ -205,6 +211,8 @@ export function materialKind(target) {
   if (VIDEO_HOSTS.includes(host)) return "video";
   if (host === "x.com" || host === "twitter.com") return "thread";
   if (host === "docs.google.com" && path.startsWith("/presentation/")) return "slides";
+  if (host === "docs.google.com" && path.startsWith("/document/")) return "doc";
+  if (host === "docs.google.com" && path.startsWith("/spreadsheets/")) return "sheet";
   return "link";
 }
 
@@ -222,8 +230,8 @@ const obsidianUrl = (vaultName, path) =>
 /** The Zotero child item of a material. target = an address, or a path inside the vault. */
 export function materialItem({ parent, title = "", target, vaultName = "" }) {
   const kind = materialKind(target);
-  // an address that ends in .pdf / .md (arxiv.org/pdf/….pdf) is still an address, not a file of the vault
-  const isFile = (kind === "pdf" || kind === "note") && !/^[a-z][a-z0-9+.-]*:/i.test(target);
+  // an address that ends in .pdf / .md / .xlsx (arxiv.org/pdf/….pdf) is still an address, not a file of the vault
+  const isFile = isMaterialFile(target) && !/^[a-z][a-z0-9+.-]*:/i.test(target);
   return {
     itemType: "attachment",
     linkMode: "linked_url",
