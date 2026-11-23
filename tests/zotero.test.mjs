@@ -168,3 +168,12 @@ test("note: the answer names the note it made, with what the vault file needs", 
   assert.deepEqual(out.madeNote, { key: "NEW1", version: 1, body: "> quoted words here\n\nhttps://cell.com/x", summary: false });
   assert.equal(out.notes.length, 1);
 });
+
+test("status by key: the notes tab names its paper, nothing is searched", async () => {
+  const w = world({ kids: [note("B", "<p>mine</p>")] });
+  const out = await w.ops.status({ doc: { key: "6CB3DZSS", url: "", meta: {} } });
+  assert.equal(out.paper.key, "6CB3DZSS");
+  assert.deepEqual(out.notes.map((n) => n.key), ["B"]);
+  assert.deepEqual(w.fetched, []);
+  assert.equal(w.mem.zoteroDocs, undefined);
+});

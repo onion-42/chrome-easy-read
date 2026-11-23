@@ -5,7 +5,7 @@ import { pageToItems, reflow, drawScale } from "./pdf-text.js";
 import { cleanPdf, cleanText, blocksToText, markdownToBlocks } from "./pdf-clean.js";
 import { loadReaderOptions } from "./reader-options.js";
 import { siteKey, matchesDomain, parseDomains } from "./site.js";
-import { prepareHost } from "./host.js";
+import { prepareHost, loadPageScripts } from "./host.js";
 import { getVault, permission, keepPdf, openPdf as openVaultPdf } from "./vault-pdf.js";
 
 const { TextLayer } = pdfjs;
@@ -72,16 +72,6 @@ function el(tag, text) {
 
 /* ---------- easy-read + the reader, with the same profile as on websites ---------- */
 
-function addScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error(`${src} did not load`));
-    document.body.append(s);
-  });
-}
-
 async function loadEasyRead() {
   const profile = (await chrome.storage.sync.get(PROFILE_KEY))[PROFILE_KEY] ?? {};
   prepareHost(profile, chrome.runtime.getURL("fonts/"), PROFILE_KEY, SAVE_DELAY_MS);
@@ -104,7 +94,7 @@ async function loadEasyRead() {
     }
     window.__erClick = { target: e.target, chars, word };
   }, true);
-  for (const src of PAGE_SCRIPTS) await addScript(src);
+  await loadPageScripts(PAGE_SCRIPTS);
 }
 
 /* new text: switching easy-read off and on stops reading aloud and re-applies bold starts and size to it */

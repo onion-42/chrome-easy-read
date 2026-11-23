@@ -73,6 +73,7 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
 
   /** -> { item | null, doi } : cache, then DOI, then the page address. */
   async function resolve(doc) {
+    if (doc.key) return { item: await zot.item(doc.key), doi: null }; // the notes tab names its paper
     const doi = await doiOf(doc);
     const ids = docIds(doc, doi);
     const cached = await cache.get(ids);

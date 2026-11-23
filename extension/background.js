@@ -23,6 +23,7 @@ const PAGE_SCRIPTS = ["easy-read.js", "text.js", "reader.js", "notes.js", "assis
 const AUDIO_CACHE_SIZE = 24;
 const TEST_PHRASE = "Hello! This is your reading voice.";
 const VIEWER = chrome.runtime.getURL("viewer.html");
+const NOTES_PAGE = chrome.runtime.getURL("notes.html");
 
 /* ---------- the PDF viewer ---------- */
 
@@ -63,6 +64,24 @@ async function openReadingList() {
   const [open] = await chrome.tabs.query({ url: READING_LIST });
   if (open) await chrome.tabs.update(open.id, { active: true });
   else await chrome.tabs.create({ url: READING_LIST });
+}
+
+/** One notes tab per paper: focus it when it is already open. `from` = the tab with the article. */
+async function openNotesTab(key, from) {
+  const open = (await chrome.tabs.query({ url: `${NOTES_PAGE}*` })).find((t) => new URL(t.url).searchParams.get("key") === key);
+  if (open) {
+    await chrome.tabs.update(open.id, { active: true });
+    return;
+  }
+  const url = `${NOTES_PAGE}?key=${encodeURIComponent(key)}${from ? `&tab=${from.id}` : ""}`;
+  await chrome.tabs.create({ url, index: from ? from.index + 1 : undefined, openerTabId: from?.id });
+}
+
+/** From the notes tab: scroll the article's tab to the note and bring that tab forward. */
+async function showNote(tabId, key) {
+  const tab = await chrome.tabs.get(tabId);
+  await toTab(tab, { type: "notes-show", key });
+  await chrome.tabs.update(tab.id, { active: true });
 }
 
 /* messages to the reader: content scripts get tabs.sendMessage; the viewer is an extension page, so it gets
@@ -338,6 +357,13 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     return true;
   } else if (msg.type === "open-pdf") {
     openPdf(msg.url, sender.tab, msg.key).catch((e) => console.error("easy-read: open PDF failed", e));
+  } else if (msg.type === "open-notes") {
+    openNotesTab(msg.key, sender.tab).catch((e) => console.error("easy-read: open notes tab failed", e));
+  } else if (msg.type === "notes-show") {
+    const closed = "Вкладка статьи закрыта. Открой статью из reading list: заметки подсветятся в тексте.";
+    if (!msg.tab) respond({ ok: false, message: closed });
+    else showNote(msg.tab, msg.key).then(() => respond({ ok: true }), (e) => { console.debug("easy-read: the article tab is gone", e); respond({ ok: false, message: closed }); });
+    return true;
   } else if (msg.type === "open-options") {
     chrome.runtime.openOptionsPage();
   } else if (msg.type === "test-voice") {

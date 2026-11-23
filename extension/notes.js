@@ -2,7 +2,9 @@
  * the paper (the service worker talks to Zotero). Quotes are highlighted with the CSS Custom Highlight API,
  * so the page's DOM is never changed. Injected after reader.js, in the same isolated world; the PDF viewer
  * loads it too and offers window.__erDoc (what is open), window.__erPdf (save the file into the vault) and
- * window.__erView (text view or PDF view; in PDF view quotes live in the text layers of the pages). */
+ * window.__erView (text view or PDF view; in PDF view quotes live in the text layers of the pages).
+ * notes.html (the notes of one paper in a tab of their own) loads it too and sets window.__erNotesPage:
+ * there the panel is the page, it names its paper by key, and there is no article text. */
 (function () {
   "use strict";
   if (window.__easyReadNotes && window.__easyReadNotes.open) return; // (a page element with this id is not us)
@@ -18,6 +20,7 @@
   var viewerDoc = typeof window.__erDoc === "function" ? window.__erDoc : null;
   var viewerPdf = window.__erPdf && typeof window.__erPdf.save === "function" ? window.__erPdf : null;
   var viewerView = window.__erView && typeof window.__erView.mode === "function" ? window.__erView : null;
+  var notesPage = window.__erNotesPage || null;
 
   var css = doc.createElement("style");
   css.textContent = [
@@ -172,6 +175,12 @@
       b.addEventListener("mousedown", function (e) { e.preventDefault(); }); // the selection in the field stays
       return b;
     }));
+  var tabBtn = button("↗", "Открыть заметки в отдельной вкладке", function () {
+    chrome.runtime.sendMessage({ type: "open-notes", key: st.paper.key });
+    close();
+  });
+  var closeBtn = button("✕", "Закрыть заметки", close);
+  tabBtn.hidden = true; closeBtn.hidden = !!notesPage;
   var previewEl = el("div", { class: "er-n-preview", "aria-label": "Как заметка будет выглядеть", hidden: "" });
   var saveBtn = button("Сохранить (Ctrl+Enter)", "Сохранить заметку в Zotero", save);
   var cancelBtn = button("Отмена", "Не менять заметку", function () { resetForm(); render(); });
@@ -180,7 +189,7 @@
   var listHead = el("div", { class: "er-n-soft" });
   var listEl = el("div");
   var panel = el("div", { id: "er-notes", class: "er-ui", role: "complementary", "aria-label": "Заметки к статье", hidden: "" }, [
-    el("div", { class: "er-n-head" }, [titleEl, button("✕", "Закрыть заметки", close)]),
+    el("div", { class: "er-n-head" }, [titleEl, el("span", { class: "er-n-row" }, [tabBtn, closeBtn])]),
     statusEl, linksEl, pdfEl, quoteEl, toolsEl, input, previewEl,
     el("div", { class: "er-n-row" }, [saveBtn, cancelBtn]),
     msgEl, extraEl, listHead, listEl
@@ -244,6 +253,8 @@
   function render() {
     var p = st.paper;
     titleEl.textContent = p ? "Заметки · " + p.label : "Заметки";
+    tabBtn.hidden = !p || !!notesPage;
+    if (notesPage) doc.title = (p ? "Заметки · " + p.label + " — " + p.title : "Заметки") + " · easy-read";
     statusEl.textContent = p ? "✓ В Zotero" : "Статьи ещё нет в Zotero. Она сохранится вместе с первой заметкой.";
     linksEl.textContent = "";
     if (p) {
@@ -273,8 +284,8 @@
     var text = formatted(body, "er-n-body");
     if (n.summary) text.insertBefore(el("strong", { text: "★ Вывод: " }), text.firstChild);
     item.appendChild(text);
-    if (!found) item.appendChild(el("p", { class: "er-n-soft", text: "цитата не найдена в этом тексте" }));
-    item.addEventListener("click", function () { scrollToNote(n.key); });
+    if (!found && !notesPage) item.appendChild(el("p", { class: "er-n-soft", text: "цитата не найдена в этом тексте" }));
+    item.addEventListener("click", function () { if (notesPage) { if (n.quote) notesPage.show(n.key); } else scrollToNote(n.key); });
     return item;
   }
 
@@ -529,7 +540,7 @@
     input.focus();
     await run("status");
   }
-  function close() { panel.hidden = true; }
+  function close() { if (!notesPage) panel.hidden = true; }
 
   /* quietly on load: highlights of earlier notes, and (viewer) the PDF into the vault */
   async function refresh() {
@@ -562,6 +573,7 @@
     if (m.toTab != null && m.toTab !== window.__erTabId) return;
     if (m.type === "notes-open") open();
     else if (m.type === "notes-quick") quickNote();
+    else if (m.type === "notes-show") { panel.hidden = false; refresh().then(function () { scrollToNote(m.key); }); } // from the notes tab
     else if (m.type === "notes-save") open().then(function () { if (!st.paper) run("save"); });
     else return;
     respond({ ok: true });
@@ -569,7 +581,7 @@
 
   /* the text is rebuilt by easy-read (bold word starts) and by the viewer: ranges must be rebuilt too */
   er.onChange(function (s) {
-    noteBtn.hidden = !s.enabled;
+    noteBtn.hidden = !s.enabled || !!notesPage;
     if (!s.enabled) { if (!viewerDoc) close(); if (window.CSS && CSS.highlights) CSS.highlights.delete("er-note"); return; }
     if (st.notes.length) paint().then(function () { if (!panel.hidden) render(); });
   });
@@ -577,7 +589,7 @@
 
   doc.body.appendChild(noteBtn);
   doc.body.appendChild(panel);
-  noteBtn.hidden = !er.getState().enabled;
+  noteBtn.hidden = !er.getState().enabled || !!notesPage;
   window.__easyReadNotes = {
     at: noteAt, // reader.js: a click on a note opens it and is not a jump
     open: open, refresh: refresh,
@@ -586,5 +598,6 @@
     quote: function () { return selectionQuote().full || st.pending.full || ""; }, // the whole selection, never shortened
     fill: function (text) { input.value = (input.value ? input.value + "\n\n" : "") + text; input.focus(); preview(); },
   };
-  if (viewerDoc ? !!viewerDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
+  if (notesPage) open();
+  else if (viewerDoc ? !!viewerDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
 })();

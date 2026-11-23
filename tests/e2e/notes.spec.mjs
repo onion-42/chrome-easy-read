@@ -420,3 +420,56 @@ test("on a page that requires Trusted Types the notes list is still shown", asyn
   await expect(panel.locator(".er-n-item")).toContainText("важно");
   await expect(panel.locator(".er-n-item")).toContainText("здесь");
 });
+
+test("notes in a tab of their own: one tab per paper, notes can be written there, a click shows the quote in the article", async ({ context, sw, server }) => {
+  await fakeZotero(sw);
+  const page = await openArticle(context, sw, server);
+  await select(page, "#p2");
+  await openNotes(sw, "noted.html");
+  const panel = page.locator("#er-notes");
+  await panel.getByLabel("Текст заметки").fill("один пациент");
+  await panel.getByLabel("Текст заметки").press("Control+Enter");
+  await expect(panel.locator(".er-n-item")).toHaveCount(1);
+
+  const opened = context.waitForEvent("page");
+  await panel.getByRole("button", { name: "Открыть заметки в отдельной вкладке" }).click();
+  const tab = await opened;
+  await expect(panel).toBeHidden(); // the panel in the article gives way to the tab
+  const list = tab.locator("#er-notes");
+  await expect(list.locator(".er-n-item")).toHaveCount(1);
+  await expect(list.locator(".er-n-item")).toContainText("один пациент");
+  await expect(tab).toHaveTitle(/Заметки · Lin 2026/);
+  await expect(list.getByRole("button", { name: "Закрыть заметки" })).toBeHidden();
+
+  // a summary written in the tab goes to Zotero
+  await list.getByRole("button", { name: "Одна общая заметка ко всей статье" }).click();
+  await list.getByLabel("Текст заметки").fill("сети, но n = 1");
+  await list.getByLabel("Текст заметки").press("Control+Enter");
+  await expect(list.locator(".er-n-item")).toHaveCount(2);
+  expect((await notesOf(sw)).some((n) => n.data.tags.some((t) => t.tag === "summary"))).toBe(true);
+
+  // a second "open in a tab" lands on the same tab
+  await page.bringToFront();
+  await openNotes(sw, "noted.html");
+  await panel.getByRole("button", { name: "Открыть заметки в отдельной вкладке" }).click();
+  await expect.poll(() => context.pages().filter((p) => p.url().includes("/notes.html")).length).toBe(1);
+
+  // a click on the note with a quote brings the article forward, with the fresh list
+  await tab.bringToFront();
+  await list.locator(".er-n-item", { hasText: "один пациент" }).click();
+  await expect.poll(() => page.evaluate(() => document.visibilityState)).toBe("visible");
+  await expect(page.locator("#er-notes .er-n-item")).toHaveCount(2);
+});
+
+test("reading list: «Заметки» opens the notes tab of the paper", async ({ context, sw }) => {
+  const seeded = { key: "SEEDED01", data: { itemType: "journalArticle", title: "A paper", creators: [{ lastName: "Meylan" }], date: "2022", extra: "obsidian: 1_education/papers/meylan-2022-tls.md" } };
+  await fakeZotero(sw, [seeded, { key: "NOTE0001", data: { itemType: "note", parentItem: "SEEDED01", note: "<blockquote><p>a quote from the paper</p></blockquote><p>from before</p>", tags: [] } }]);
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${new URL(sw.url()).host}/reading.html`);
+  const opened = context.waitForEvent("page");
+  await page.getByRole("link", { name: "Заметки" }).click();
+  const tab = await opened;
+  await expect(tab.locator("#er-notes .er-n-item")).toContainText("from before");
+  await tab.locator("#er-notes .er-n-item").click(); // no article tab is known
+  await expect(tab.locator("#status")).toContainText("Вкладка статьи закрыта");
+});

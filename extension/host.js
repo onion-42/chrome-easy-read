@@ -21,3 +21,16 @@ export function prepareHost(profile, fontBase, profileKey, saveDelayMs) {
   };
   return "ok";
 }
+
+/** Load classic scripts into this extension page one after another (easy-read, the reader, the notes panel). */
+export async function loadPageScripts(sources) {
+  for (const src of sources) {
+    await new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`${src} did not load`));
+      document.body.append(s);
+    });
+  }
+}

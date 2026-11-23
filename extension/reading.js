@@ -90,6 +90,7 @@ function row(p) {
     el("a", { class: "btn", href: `zotero://select/library/items/${p.key}`, text: "Zotero" }),
   ]);
   if (p.slug) actions.append(el("a", { class: "btn", href: obsidianUrl(p), text: "Obsidian" }));
+  actions.append(el("a", { class: "btn", href: `notes.html?key=${encodeURIComponent(p.key)}`, target: "_blank", text: "Заметки" }));
   const pick = el("button", { type: "button", text: p.pdf ? "Заменить PDF…" : "Прикрепить PDF…" });
   pick.addEventListener("click", async () => {
     attachTo = p;
