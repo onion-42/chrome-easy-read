@@ -55,7 +55,7 @@
     },
     "add-note": {
       "suggested_key": {
-        "default": "Alt+Shift+N"
+        "default": "Alt+Shift+A"
       },
       "description": "Save the selected text as a note at once (Zotero + vault); nothing selected: open the notes"
     },

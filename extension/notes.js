@@ -110,7 +110,7 @@
   /* ---------- the panel ---------- */
 
   var noteBtn = el("button", { id: "er-note", type: "button", class: "er-ui", text: "📝",
-    "aria-label": "Заметки к статье (Alt+Shift+N)", title: "Заметки к статье (Alt+Shift+N)" });
+    "aria-label": "Заметки к статье (Alt+Shift+A)", title: "Заметки к статье (Alt+Shift+A)" });
   var titleEl = el("span", { text: "Заметки" });
   var statusEl = el("div", { class: "er-n-soft", role: "status" });
   var linksEl = el("div", { class: "er-n-row" });
@@ -378,7 +378,7 @@
     error: "Сохранено в Zotero. В vault появится после синхронизации: файл записать не удалось."
   };
 
-  /* Alt+Shift+N on a selection: the quote is saved at once (Zotero, the list here, the vault). The new note
+  /* Alt+Shift+A on a selection: the quote is saved at once (Zotero, the list here, the vault). The new note
    * then stays open for an optional comment; Escape leaves it as it is. Nothing selected: the panel. */
   async function quickNote() {
     var picked = selectionQuote();

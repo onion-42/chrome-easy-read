@@ -64,7 +64,7 @@ macOS and Windows have no systemd. Download the voices with the command in the l
 | A PDF from your computer | in the viewer: **Open a PDF…**, or drag the file in (or allow file URLs, below) |
 | See figures / tables of a page | the **Show page** button at each page marker |
 | Read the PDF as it was printed | **PDF** in the viewer header: the real pages, with text you can select; **Текст** goes back to the same page. The view used last is remembered |
-| Note on the real page | in the PDF view: select text → `Alt+Shift+N`. The note gets the page number and goes to Zotero and the vault like any other note; it is highlighted in both views |
+| Note on the real page | in the PDF view: select text → `Alt+Shift+A`. The note gets the page number and goes to Zotero and the vault like any other note; it is highlighted in both views |
 | Messy PDF | **Clean up with DeepSeek** in the viewer header (kept for the last 10 PDFs) |
 | Scanned PDF (no text) | the same button reads **Read this scan with Gemini** |
 
@@ -89,11 +89,11 @@ folder of the vault (the one that holds `.obsidian`; a subfolder is refused).
 
 | Action | How |
 |---|---|
-| Quick note on selected text | select text, **Alt+Shift+N** (or right-click → «Заметка к выделению»): the quote is saved at once, to Zotero, the list in the panel and the vault. The new note stays open in the field: add a comment and press **Ctrl+Enter**, or press **Escape** to leave it as it is. Nothing selected: the panel opens |
+| Quick note on selected text | select text, **Alt+Shift+A** (or right-click → «Заметка к выделению»): the quote is saved at once, to Zotero, the list in the panel and the vault. The new note stays open in the field: add a comment and press **Ctrl+Enter**, or press **Escape** to leave it as it is. Nothing selected: the panel opens |
 | Note with a comment first | select text, 📝 → comment → **Ctrl+Enter** |
 | Save the paper without a note | right-click → «Сохранить статью в Zotero», or the button in the panel |
 | Format the text of a note | buttons above the field: **Ж** bold (Ctrl+B), *К* italic (Ctrl+I), Ч underline (Ctrl+U), З strike, В highlight, code, link (Ctrl+K), x² / x₂, list, quote. They put markdown around the selection (`**x**`, `*x*`, `<u>x</u>`, `~~x~~`, `==x==`, `<sup>`, `<sub>`); a second press takes it off. Under the field a preview shows the formatted text; the list of notes shows it formatted too. The same marks are kept in Zotero and in the vault file, where Obsidian renders them |
-| Notes in a tab of their own | **↗** in the head of the notes panel, or «Заметки» at the paper in the reading list. One tab per paper. There you read and edit the notes, write the summary and notes without a quote; a click on a note with a quote goes to the article's tab and scrolls to it. A note on selected text is still made in the article (Alt+Shift+N); the tab shows it when you come back to it. The assistant is not there (no article text) |
+| Notes in a tab of their own | **↗** in the head of the notes panel, or «Заметки» at the paper in the reading list. One tab per paper. There you read and edit the notes, write the summary and notes without a quote; a click on a note with a quote goes to the article's tab and scrolls to it. A note on selected text is still made in the article (Alt+Shift+A); the tab shows it when you come back to it. The assistant is not there (no article text) |
 | Edit a note | ✎ in the list; if the note changed in Zotero meanwhile, both texts are shown and yours stays in the field |
 | Summary of the whole paper | «Вывод по статье»: one per paper, first in the list (Zotero tag `summary`) |
 | See earlier notes | quotes are highlighted in the text; click a highlight to open its note |
@@ -114,7 +114,7 @@ address. A page with none of these is saved as a web page item.
 
 ## Questions about the paper and translation
 
-Open the notes panel (📝 or Alt+Shift+N) and unfold **«Помощник: вопросы и перевод»**.
+Open the notes panel (📝 or Alt+Shift+A) and unfold **«Помощник: вопросы и перевод»**.
 
 | I want to… | Do this |
 |---|---|
