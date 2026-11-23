@@ -77,7 +77,11 @@ easy-read on for that tab only. Shortcuts can be changed at `chrome://extensions
 ## Notes, Zotero and the reading list
 
 One paper is one Zotero item. easy-read saves papers and notes to Zotero; the Obsidian vault gets them through
-the plan-browser extension (or `node ~/.claude/skills/zotero-link/cli.mjs sync`).
+the plan-browser extension (or `node ~/.claude/skills/zotero-link/cli.mjs sync`). A note that easy-read has just
+made is also written to the vault at once (`1_education/papers/notes/<slug>--<KEY>.md`, plus its link in the
+paper's note), when the vault folder is chosen, its access is confirmed and the paper already has its note
+there; otherwise the panel says why, and the sync brings the note later. easy-read never edits an existing note
+file.
 
 Set up once in the options page, section **Zotero**: paste the API key (zotero.org/settings/keys, rights
 library + notes + write), press «Проверить», pick the collection (default `Reading list`), and choose the root
@@ -85,7 +89,8 @@ folder of the vault (the one that holds `.obsidian`; a subfolder is refused).
 
 | Action | How |
 |---|---|
-| Note on selected text | select text, **Alt+Shift+N** (or 📝, or right-click → «Заметка к выделению») → comment → **Ctrl+Enter** |
+| Quick note on selected text | select text, **Alt+Shift+N** (or right-click → «Заметка к выделению»): the quote is saved at once, to Zotero, the list in the panel and the vault. The new note stays open in the field: add a comment and press **Ctrl+Enter**, or press **Escape** to leave it as it is. Nothing selected: the panel opens |
+| Note with a comment first | select text, 📝 → comment → **Ctrl+Enter** |
 | Save the paper without a note | right-click → «Сохранить статью в Zotero», or the button in the panel |
 | Edit a note | ✎ in the list; if the note changed in Zotero meanwhile, both texts are shown and yours stays in the field |
 | Summary of the whole paper | «Вывод по статье»: one per paper, first in the list (Zotero tag `summary`) |

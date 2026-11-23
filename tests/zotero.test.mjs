@@ -160,3 +160,11 @@ test("remove refuses when the reading-list collection is not found, instead of r
   await assert.rejects(ops.remove({ key: LIN.key }), /Коллекция Zotero не найдена/);
   assert.deepEqual(w.calls, []);
 });
+
+test("note: the answer names the note it made, with what the vault file needs", async () => {
+  const w = world();
+  const out = await w.ops.note({ doc: { url: "https://cell.com/x", meta: { citation_doi: "10.1234/lin" } }, quote: "quoted words here", comment: "" });
+  assert.equal(out.made, "NEW1");
+  assert.deepEqual(out.madeNote, { key: "NEW1", version: 1, body: "> quoted words here\n\nhttps://cell.com/x", summary: false });
+  assert.equal(out.notes.length, 1);
+});

@@ -319,3 +319,55 @@ test("in PDF view: a note on a selection over two lines gets its page, and is hi
   await expect.poll(() => highlights(page)).toHaveLength(1);
   expect((await highlights(page))[0]).toContain("Fecal transplants");
 });
+
+test("quick note: the hotkey saves the selected text at once, to Zotero, the panel and the vault", async ({ context, sw, server }) => {
+  const seeded = { key: "SEEDED01", data: { itemType: "journalArticle", title: "TLS networks in three dimensions", creators: [{ lastName: "Lin" }], date: "2026", DOI: "10.1234/tls.2026.001", extra: "obsidian: 1_education/papers/lin-2026-tls.md" } };
+  await fakeZotero(sw, [seeded]);
+  await sw.evaluate(async () => {
+    const root = (self.__vaultOverride = await navigator.storage.getDirectory());
+    let dir = root;
+    for (const name of ["1_education", "papers"]) dir = await dir.getDirectoryHandle(name, { create: true });
+    const w = await (await dir.getFileHandle("lin-2026-tls.md", { create: true })).createWritable();
+    await w.write("# Lin 2026\n\n## Заметки\n");
+    await w.close();
+  });
+  const vaultText = (path) => sw.evaluate(async (p) => {
+    let dir = await navigator.storage.getDirectory();
+    const parts = p.split("/");
+    for (const name of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(name);
+    return (await (await dir.getFileHandle(parts.at(-1))).getFile()).text();
+  }, path);
+  const quick = () => sw.evaluate(async () => {
+    const tab = (await chrome.tabs.query({})).find((t) => t.url.includes("noted.html"));
+    await self.easyRead.quickNote(tab);
+  });
+
+  const page = await openArticle(context, sw, server);
+  await select(page, "#p2");
+  await quick();
+  const panel = page.locator("#er-notes");
+  const field = panel.getByLabel("Текст заметки");
+  await expect(panel.locator(".er-n-item")).toHaveCount(1);
+  await expect(panel.locator(".er-n-msg")).toHaveText("Сохранено: Zotero и vault.");
+  await expect(field).toHaveValue(/^> Each network was assembled/); // open for an optional comment
+  const [note] = await notesOf(sw);
+  expect(note.data.parentItem).toBe("SEEDED01");
+  expect(note.data.note).toContain("<blockquote><p>Each network was assembled from serial sections");
+  expect(await highlights(page)).toHaveLength(1);
+
+  const file = await vaultText(`1_education/papers/notes/lin-2026-tls--${note.key}.md`);
+  expect(file).toContain("Статья: [[lin-2026-tls]]");
+  expect(file).toContain("> Each network was assembled");
+  expect(file).toMatch(new RegExp(`%% zotero-note: ${note.key} · v${note.version} · h:[0-9a-f]{8} %%`));
+  expect(await vaultText("1_education/papers/lin-2026-tls.md")).toContain(`- [[lin-2026-tls--${note.key}]]`);
+
+  await field.fill(`${await field.inputValue()}\n\nтолько один пациент`);
+  await field.press("Control+Enter");
+  await expect(panel.locator(".er-n-item")).toContainText("только один пациент");
+  expect(await notesOf(sw)).toHaveLength(1); // the comment went into the same note
+
+  await page.evaluate(() => getSelection().removeAllRanges());
+  await quick(); // nothing selected: the panel, no note
+  await expect(panel).toBeVisible();
+  expect(await notesOf(sw)).toHaveLength(1);
+});

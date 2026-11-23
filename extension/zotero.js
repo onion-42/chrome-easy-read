@@ -1,5 +1,6 @@
 // Zotero for the service worker: which paper is this document, save it, its notes, the reading list.
-// easy-read writes papers and notes to Zotero only; the vault gets them through plan-browser's sync.
+// Papers and notes go to Zotero; the vault gets them through plan-browser's sync (background.js also writes
+// the file of a note it has just made, so that it is in the vault at once).
 import { client, collectionTree, lookupDoi, pmidToDoi, NO_KEY } from "./zotero-api.js";
 import * as P from "./papers.js";
 
@@ -162,10 +163,12 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       if (old) {
         const res = await zot.patch(old.key, { note: P.mdToHtml(body) }, old.version);
         if (res.conflict) throw new Error("Вывод изменился в Zotero. Открой заметки заново.");
-      } else {
-        await zot.create({ itemType: "note", parentItem: paper.key, note: P.mdToHtml(body), tags: summary ? [{ tag: P.SUMMARY_TAG }] : [] });
+        return status(paper, doc);
       }
-      return status(paper, doc);
+      const html = P.mdToHtml(body);
+      const made = await zot.create({ itemType: "note", parentItem: paper.key, note: html, tags: summary ? [{ tag: P.SUMMARY_TAG }] : [] });
+      // madeNote: what the vault file of this note needs (the body as the sync would read it back)
+      return { ...(await status(paper, doc)), made: made.key, madeNote: { key: made.key, version: made.version, body: P.htmlToMd(html), summary } };
     },
     /** Edit a note; a conflict returns the remote text and changes nothing. */
     async edit({ noteKey, md, version }) {

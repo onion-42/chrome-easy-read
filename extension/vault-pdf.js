@@ -1,6 +1,9 @@
-// PDFs in the Obsidian vault, through the File System Access API. easy-read touches one folder only:
-// 0_media/papers/ (create, replace on request, read). It never reads or edits notes.
-// The handle lives in IndexedDB; after a Chrome restart the permission is "prompt" again and needs a click.
+// The Obsidian vault, through the File System Access API. easy-read writes PDFs into 0_media/papers/
+// (create, replace on request, read) and creates the file of a note it has just made in
+// 1_education/papers/notes/ (plus its link in the paper's note). It never edits an existing note: edits go
+// through Zotero and the sync. The handle lives in IndexedDB; after a Chrome restart the permission is
+// "prompt" again and needs a click.
+import * as P from "./papers.js";
 
 const DB = "easy-read", STORE = "kv", KEY = "vault";
 export const PDF_DIR = ["0_media", "papers"];
@@ -80,6 +83,56 @@ export async function keepPdf(slug, bytes, { interactive = false, replace = fals
   if (!dir) return { reason: "no-vault" };
   if ((await permission(dir, interactive)) !== "granted") return { reason: "permission" };
   return savePdf(dir, slug, bytes, { replace });
+}
+
+/* ---------- text files ---------- */
+
+async function walk(dir, names, create = false) {
+  let d = dir;
+  for (const name of names) d = await d.getDirectoryHandle(name, { create });
+  return d;
+}
+
+/** -> the text of a file, or null when the file (or its folder) is not there. */
+async function readText(dir, names, name) {
+  try {
+    return await (await (await (await walk(dir, names)).getFileHandle(name)).getFile()).text();
+  } catch (e) {
+    if (e.name === "NotFoundError") return null;
+    throw e;
+  }
+}
+
+async function writeText(dir, names, name, text) {
+  const w = await (await (await walk(dir, names, true)).getFileHandle(name, { create: true })).createWritable();
+  await w.write(text);
+  await w.close();
+}
+
+/**
+ * The file of a note that was just created in Zotero, exactly as the sync would write it, and its link in
+ * the paper's note -> { path } or { reason: "no-passport" } (the paper has no note in the vault yet: the
+ * sync writes both). An existing file is never touched.
+ */
+export async function saveNote(dir, { slug, label, key, version, body, summary = false }) {
+  const papers = P.PAPERS_DIR.split("/"), notes = P.NOTES_DIR.split("/");
+  const passport = slug ? await readText(dir, papers, `${slug}.md`) : null;
+  if (passport === null) return { reason: "no-passport" };
+  const name = P.noteFileName(slug, key);
+  const path = `${P.NOTES_DIR}/${name}`;
+  if ((await readText(dir, notes, name)) !== null) return { path };
+  await writeText(dir, notes, name, P.renderNoteFile({ title: P.noteTitle(label, body, summary), paperSlug: slug, body, key, version, summary }));
+  const linked = P.withNoteLink(passport, name.replace(/\.md$/, ""));
+  if (linked !== passport) await writeText(dir, papers, `${slug}.md`, linked);
+  return { path };
+}
+
+/** saveNote with its refusals -> { path } or { reason }: "no-vault", "permission", "no-passport". */
+export async function keepNote(note) {
+  const dir = await getVault();
+  if (!dir) return { reason: "no-vault" };
+  if ((await permission(dir)) !== "granted") return { reason: "permission" };
+  return saveNote(dir, note);
 }
 
 /** Read a PDF of the vault (0_media/papers/ only) -> File, or null when it is not there. */

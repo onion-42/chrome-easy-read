@@ -219,6 +219,27 @@
     if (ok) { resetForm(); render(); }
   }
 
+  var VAULT_WHY = {
+    "": "Сохранено: Zotero и vault.",
+    "no-vault": "Сохранено в Zotero. В vault появится после синхронизации: папка vault не выбрана в настройках easy-read.",
+    permission: "Сохранено в Zotero. В vault появится после синхронизации: доступ к папке vault не подтверждён (подтверди его в reading list).",
+    "no-passport": "Сохранено в Zotero. В vault появится после синхронизации: у статьи там ещё нет заметки.",
+    error: "Сохранено в Zotero. В vault появится после синхронизации: файл записать не удалось."
+  };
+
+  /* Alt+Shift+N on a selection: the quote is saved at once (Zotero, the list here, the vault). The new note
+   * then stays open for an optional comment; Escape leaves it as it is. Nothing selected: the panel. */
+  async function quickNote() {
+    var picked = selectionQuote();
+    if (!picked.quote) { open(); return; }
+    panel.hidden = false;
+    var res = await run("note", { quote: picked.quote, page: picked.page, comment: "" });
+    if (!res) { st.pending = picked; st.editing = null; st.summary = false; render(); return; } // the quote waits in the form
+    var made = st.notes.find(function (n) { return n.key === res.made; });
+    if (made) startEdit(made);
+    say(VAULT_WHY[res.vaultNote || ""] || VAULT_WHY.error);
+  }
+
   /* a local file in the viewer that could not be recognised: tie it to a paper of the reading list */
   async function choosePaper() {
     try {
@@ -418,6 +439,7 @@
   chrome.runtime.onMessage.addListener(function (m, sender, respond) {
     if (m.toTab != null && m.toTab !== window.__erTabId) return;
     if (m.type === "notes-open") open();
+    else if (m.type === "notes-quick") quickNote();
     else if (m.type === "notes-save") open().then(function () { if (!st.paper) run("save"); });
     else return;
     respond({ ok: true });

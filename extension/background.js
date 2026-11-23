@@ -5,6 +5,7 @@ import { prepareHost } from "./host.js";
 import { synthesizeLocal } from "./tts/local.js";
 import { speakBuiltin, detectLang } from "./tts/builtin.js";
 import { zotero } from "./zotero.js";
+import { keepNote } from "./vault-pdf.js";
 import { ask, translate } from "./assist.js";
 
 const PROFILE_KEY = "settings";
@@ -299,6 +300,21 @@ async function assist(msg, tab) {
   throw new Error(`Unknown assist operation: ${msg.op}`);
 }
 
+/** The "zotero" message. A note that was just made also gets its file in the vault, when the vault can be
+ * written from here; vaultNote says why not ("" = written), and then the sync brings the note later. */
+async function zoteroMessage(msg) {
+  const { madeNote, ...res } = await zotero(msg);
+  if (!madeNote) return res;
+  let vaultNote = "";
+  try {
+    vaultNote = (await keepNote({ ...madeNote, slug: res.paper.slug, label: res.paper.label })).reason || "";
+  } catch (e) {
+    console.warn("easy-read: the note is in Zotero, its vault file was not written", e);
+    vaultNote = "error";
+  }
+  return { ...res, vaultNote };
+}
+
 async function relayAudioEvent(msg) {
   const tab = await chrome.tabs.get(msg.tabId);
   await toTab(tab, { ...msg, type: "tts-event" });
@@ -315,7 +331,7 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     loadReaderOptions().then((o) => respond({ rate: o.rate, readCitations: o.readCitations, readFigureRefs: o.readFigureRefs, rates: RATES }));
     return true;
   } else if (msg.type === "zotero") {
-    zotero(msg).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
+    zoteroMessage(msg).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
     return true;
   } else if (msg.type === "assist") {
     assist(msg, sender.tab).then((r) => respond({ ok: true, ...r }), (e) => respond({ ok: false, message: e.message }));
@@ -338,7 +354,7 @@ chrome.action.onClicked.addListener((tab) => {
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "read-aloud") readerCommand(tab, "reader-toggle");
-  else if (command === "add-note") readerCommand(tab, "notes-open");
+  else if (command === "add-note") readerCommand(tab, "notes-quick");
   else if (command === "reading-list") openReadingList().catch((e) => console.error("easy-read: reading list failed", e));
 });
 
@@ -354,7 +370,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === READ_MENU) readerCommand(tab, "reader-start", true);
   else if (info.menuItemId === PDF_MENU) openPdf(info.linkUrl, tab).catch((e) => console.error("easy-read: open PDF failed", e));
-  else if (info.menuItemId === NOTE_MENU) readerCommand(tab, "notes-open");
+  else if (info.menuItemId === NOTE_MENU) readerCommand(tab, "notes-quick");
   else if (info.menuItemId === SAVE_MENU) readerCommand(tab, "notes-save");
   else if (info.menuItemId === LIST_MENU) openReadingList().catch((e) => console.error("easy-read: reading list failed", e));
 });
@@ -370,6 +386,7 @@ self.easyRead = {
   openPdf,
   startReading: (tab, fromContext) => readerCommand(tab, "reader-start", fromContext),
   openNotes: (tab) => readerCommand(tab, "notes-open"),
+  quickNote: (tab) => readerCommand(tab, "notes-quick"),
   engines,
   assist: { ask, translate },
 };
