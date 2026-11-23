@@ -132,20 +132,28 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
     return zot.item(key);
   }
 
-  async function notesOf(key) {
+  /** The children of a paper, read once -> { notes (summary first), materials }. */
+  async function kidsOf(key) {
     const kids = await zot.children(key);
-    return kids
+    const notes = kids
       .filter((k) => k.data.itemType === "note" && !k.data.deleted)
       .sort((a, b) => (a.data.dateAdded || "").localeCompare(b.data.dateAdded || ""))
       .map(noteView)
       .sort((a, b) => Number(b.summary) - Number(a.summary));
+    return { notes, materials: kids.filter(P.isMaterial).map(P.materialView) };
   }
+  const notesOf = async (key) => (await kidsOf(key)).notes;
 
-  const status = async (item, doc) => ({ paper: item ? paperView(item) : null, pdfUrl: P.pdfUrlOf(doc), notes: item ? await notesOf(item.key) : [] });
+  const status = async (item, doc) => ({ paper: item ? paperView(item) : null, pdfUrl: P.pdfUrlOf(doc), ...(item ? await kidsOf(item.key) : { notes: [], materials: [] }) });
 
   return {
     async list() {
-      return { groups: (await papersOfTree()).map((g) => ({ name: g.name, items: g.items.map(paperView) })).filter((g) => g.items.length) };
+      const byPaper = new Map(); // one request for the materials of every paper
+      for (const it of (await zot.materials()).filter(P.isMaterial)) {
+        byPaper.set(it.data.parentItem, [...(byPaper.get(it.data.parentItem) || []), P.materialView(it)]);
+      }
+      const view = (it) => ({ ...paperView(it), materials: byPaper.get(it.key) || [] });
+      return { groups: (await papersOfTree()).map((g) => ({ name: g.name, items: g.items.map(view) })).filter((g) => g.items.length) };
     },
     async status({ doc }) {
       return status((await resolve(doc)).item, doc);
@@ -205,6 +213,25 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       }
       return {};
     },
+    /** Attach a material to a paper. target: an address, or a path inside the vault. hash: of a kept PDF. */
+    async materialAdd({ key, title = "", target, hash = null, vaultName = "" }) {
+      if (!target) throw new Error("Пустой материал: нужен адрес или файл.");
+      const dup = (await zot.children(key)).filter(P.isMaterial).map(P.materialView).find((m) => (m.path || m.url) === target);
+      if (hash) await cache.set([`h:${hash}`], key); // notes taken in this file go to the same paper
+      if (dup) return { key: dup.key, existed: true };
+      const made = await zot.create(P.materialItem({ parent: key, title, target, vaultName }));
+      return { key: made.key, existed: false };
+    },
+    /** Take a material off the paper: the Zotero child goes to the trash; a file in the vault stays. */
+    async materialRemove({ materialKey }) {
+      for (let attempt = 0; ; attempt++) {
+        const it = await zot.item(materialKey);
+        if (!(it.data.tags || []).some((t) => t.tag === P.MATERIAL_TAG)) throw new Error("Эта запись Zotero — не материал статьи.");
+        const res = await zot.patch(materialKey, { deleted: 1 }, it.version);
+        if (!res.conflict) return {};
+        if (attempt) throw new Error("Запись изменилась в Zotero, материал не убран. Повтори.");
+      }
+    },
     /** "This open document is that paper" (a local file tied to an item by hand). */
     async attach({ key, doc }) {
       await cache.set(docIds(doc, null), key);
@@ -221,5 +248,5 @@ export async function zotero(msg) {
   if (!settings.collection) throw new Error("Выбери коллекцию Zotero в настройках easy-read.");
   const ops = makeOps({ zot: client(settings), cache: makeCache(chrome.storage.local), collection: settings.collection });
   if (!Object.hasOwn(ops, msg.op)) throw new Error(`unknown zotero op: ${msg.op}`);
-  return { ...(await ops[msg.op](msg)), vault: settings.vaultName || "" };
+  return { ...(await ops[msg.op]({ ...msg, vaultName: settings.vaultName || "" })), vault: settings.vaultName || "" };
 }

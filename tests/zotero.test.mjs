@@ -5,7 +5,7 @@ import { makeOps, makeCache, docIds } from "../extension/zotero.js";
 const LIN = { key: "6CB3DZSS", version: 3, data: { itemType: "journalArticle", title: "Multiplexed 3D atlas", creators: [{ lastName: "Lin" }], date: "2023", DOI: "10.1234/lin", extra: "obsidian: 1_education/papers/lin-2023-3d-crc-atlas.md\npdf: 0_media/papers/lin-2023-3d-crc-atlas.pdf" } };
 const note = (key, html, more = {}) => ({ key, version: 5, data: { itemType: "note", parentItem: LIN.key, note: html, tags: [], dateAdded: key, ...more } });
 
-function world({ items = [LIN], kids = [] } = {}) {
+function world({ items = [LIN], kids = [], materials = [] } = {}) {
   const calls = [];
   const all = new Map(items.map((it) => [it.key, it]));
   let n = 0;
@@ -13,6 +13,7 @@ function world({ items = [LIN], kids = [] } = {}) {
     collections: async () => [{ key: "ROOT", data: { name: "Reading list", parentCollection: false } }, { key: "SUB", data: { name: "VBC", parentCollection: "ROOT" } }],
     collectionTop: async (key) => (key === "SUB" ? items : []),
     children: async () => kids,
+    materials: async () => materials,
     item: async (key) => all.get(key) ?? Promise.reject(new Error("404")),
     findByDoi: async (doi) => items.find((it) => it.data.DOI === doi) ?? null,
     findByUrl: async (url) => items.find((it) => it.data.url === url) ?? null,
@@ -57,7 +58,7 @@ test("status finds a paper by the page's DOI meta tag and lists its notes, summa
 
 test("an unknown page is not saved by status", async () => {
   const w = world();
-  assert.deepEqual(await w.ops.status({ doc: { url: "https://x.org/a", meta: {} } }), { paper: null, pdfUrl: null, notes: [] });
+  assert.deepEqual(await w.ops.status({ doc: { url: "https://x.org/a", meta: {} } }), { paper: null, pdfUrl: null, notes: [], materials: [] });
   assert.deepEqual(w.calls, []);
 });
 
@@ -176,4 +177,42 @@ test("status by key: the notes tab names its paper, nothing is searched", async 
   assert.deepEqual(out.notes.map((n) => n.key), ["B"]);
   assert.deepEqual(w.fetched, []);
   assert.equal(w.mem.zoteroDocs, undefined);
+});
+
+const material = (key, title, url, kind, more = {}) => ({ key, version: 4, data: { itemType: "attachment", linkMode: "linked_url", parentItem: LIN.key, title, url, tags: [{ tag: "paper-material" }, { tag: `material-${kind}` }], ...more } });
+
+test("materials: the reading list and the status of a paper carry them; trashed ones and the journal's PDF link do not count", async () => {
+  const talk = material("M1", "Talk", "https://youtu.be/abc", "video");
+  const gone = material("M2", "gone", "https://x.com/a/status/1", "thread", { deleted: 1 });
+  const journalPdf = { key: "A1", version: 1, data: { itemType: "attachment", linkMode: "linked_url", parentItem: LIN.key, title: "PDF", url: "https://cell.com/x.pdf", tags: [] } };
+  const w = world({ kids: [talk, gone, journalPdf, note("B", "<p>mine</p>")], materials: [talk, gone] });
+  const view = { key: "M1", title: "Talk", kind: "video", url: "https://youtu.be/abc", path: "" };
+  assert.deepEqual((await w.ops.list()).groups[0].items[0].materials, [view]);
+  const out = await w.ops.status({ doc: { key: LIN.key } });
+  assert.deepEqual(out.materials, [view]);
+  assert.deepEqual(out.notes.map((n) => n.key), ["B"]);
+});
+
+test("materialAdd: a file of the vault gets an obsidian address and its hash leads to the paper; a second add is a no-op", async () => {
+  const w = world();
+  const path = "0_media/papers/lin-2023-3d-crc-atlas--supplementary.pdf";
+  const made = await w.ops.materialAdd({ key: LIN.key, title: "Supplementary", target: path, hash: "abc", vaultName: "vault" });
+  assert.deepEqual(made, { key: "NEW1", existed: false });
+  assert.deepEqual(w.calls[0].item, { itemType: "attachment", linkMode: "linked_url", parentItem: LIN.key, title: "Supplementary",
+    url: "obsidian://open?vault=vault&file=0_media%2Fpapers%2Flin-2023-3d-crc-atlas--supplementary.pdf", tags: [{ tag: "paper-material" }, { tag: "material-pdf" }] });
+  assert.deepEqual(w.mem.zoteroDocs, [["h:abc", LIN.key]]);
+
+  const kids = [{ key: "NEW1", version: 1, data: w.calls[0].item }];
+  const again = world({ kids });
+  assert.deepEqual(await again.ops.materialAdd({ key: LIN.key, target: path, vaultName: "vault" }), { key: "NEW1", existed: true });
+  assert.deepEqual(again.calls, []);
+  await assert.rejects(again.ops.materialAdd({ key: LIN.key, target: "" }), /Пустой материал/);
+});
+
+test("materialRemove: the Zotero child goes to the trash, one retry on a conflict", async () => {
+  const w = world({ items: [LIN, material("M1", "Talk", "https://youtu.be/abc", "video")] });
+  assert.deepEqual(await w.ops.materialRemove({ materialKey: "M1" }), {});
+  assert.deepEqual(w.calls, [{ op: "patch", key: "M1", fields: { deleted: 1 }, ifVersion: 4 }]);
+  const paper = world();
+  await assert.rejects(paper.ops.materialRemove({ materialKey: LIN.key }), /не материал/);
 });

@@ -357,6 +357,12 @@ chrome.runtime.onMessage.addListener((msg, sender, respond) => {
     return true;
   } else if (msg.type === "open-pdf") {
     openPdf(msg.url, sender.tab, msg.key).catch((e) => console.error("easy-read: open PDF failed", e));
+  } else if (msg.type === "open-vault-pdf") { // a material PDF kept in the vault; a web page cannot open the viewer itself
+    if (!String(msg.path).startsWith("0_media/papers/")) return false;
+    chrome.tabs.create({ url: `${VIEWER}?vault=${encodeURIComponent(msg.path)}`, index: sender.tab ? sender.tab.index + 1 : undefined })
+      .catch((e) => console.error("easy-read: open vault PDF failed", e));
+  } else if (msg.type === "open-reading-list") {
+    openReadingList().catch((e) => console.error("easy-read: reading list failed", e));
   } else if (msg.type === "open-notes") {
     openNotesTab(msg.key, sender.tab).catch((e) => console.error("easy-read: open notes tab failed", e));
   } else if (msg.type === "notes-show") {

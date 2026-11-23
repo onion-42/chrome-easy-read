@@ -1,7 +1,8 @@
 // The Obsidian vault, through the File System Access API. easy-read writes PDFs into 0_media/papers/
-// (create, replace on request, read) and creates the file of a note it has just made in
-// 1_education/papers/notes/ (plus its link in the paper's note). It never edits an existing note: edits go
-// through Zotero and the sync. The handle lives in IndexedDB; after a Chrome restart the permission is
+// (the paper's own PDF: create, replace on request, read; a material PDF: create), creates the file of a
+// note it has just made in 1_education/papers/notes/ (plus its link in the paper's note) and copies a
+// material .md that is not in the vault yet into 1_education/papers/materials/. It never edits or replaces
+// an existing note or material: edits go through Zotero and the sync. The handle lives in IndexedDB; after a Chrome restart the permission is
 // "prompt" again and needs a click.
 import * as P from "./papers.js";
 
@@ -83,6 +84,40 @@ export async function keepPdf(slug, bytes, { interactive = false, replace = fals
   if (!dir) return { reason: "no-vault" };
   if ((await permission(dir, interactive)) !== "granted") return { reason: "permission" };
   return savePdf(dir, slug, bytes, { replace });
+}
+
+/* ---------- materials of a paper ---------- */
+
+/** Path of a picked file inside the vault ("a/b/c.md"), or null when it lies outside. */
+export async function vaultPathOf(dir, handle) {
+  const parts = await dir.resolve(handle);
+  return parts ? parts.join("/") : null;
+}
+
+const MAX_SAME_NAMES = 9;
+
+/** Copy a material file into the vault: a PDF to 0_media/papers/, anything else to 1_education/papers/materials/.
+ * -> { path, existed }. A file is never overwritten: the same name with the same size is taken as the same
+ * file (existed), another file under that name gets "-2", "-3", … */
+export async function saveMaterial(dir, name, bytes) {
+  const folder = /\.pdf$/i.test(name) ? PDF_DIR : P.MATERIALS_DIR.split("/");
+  const d = await walk(dir, folder, true);
+  const dot = name.lastIndexOf(".");
+  for (let n = 1; n <= MAX_SAME_NAMES; n++) {
+    const candidate = n === 1 ? name : `${name.slice(0, dot)}-${n}${name.slice(dot)}`;
+    const path = [...folder, candidate].join("/");
+    try {
+      const old = await (await d.getFileHandle(candidate)).getFile();
+      if (old.size === bytes.byteLength) return { path, existed: true };
+    } catch (e) {
+      if (e.name !== "NotFoundError") throw e;
+      const w = await (await d.getFileHandle(candidate, { create: true })).createWritable();
+      await w.write(bytes);
+      await w.close();
+      return { path, existed: false };
+    }
+  }
+  throw new Error(`в vault уже есть ${MAX_SAME_NAMES} разных файлов с именем ${name}`);
 }
 
 /* ---------- text files ---------- */

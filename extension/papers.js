@@ -181,6 +181,102 @@ export function withNoteLink(text, noteName) {
   return [...lines.slice(0, last), `- [[${noteName}]]`, "", ...lines.slice(end)].join("\n");
 }
 
+// ---------- materials of a paper ----------
+// A material = a Zotero child of the paper: attachment, linked_url, tags paper-material + material-<kind>.
+// A file of the vault is linked by an obsidian:// address (Zotero keeps it: checked on the live API).
+
+export const MATERIAL_TAG = "paper-material";
+export const MATERIALS_DIR = "1_education/papers/materials";
+export const MATERIAL_KINDS = { pdf: "PDF", note: "заметка", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" };
+const VIDEO_HOSTS = ["youtube.com", "youtu.be", "youtube-nocookie.com", "vimeo.com"];
+
+/** Kind of a material from its address or file name. */
+export function materialKind(target) {
+  if (/\.pdf$/i.test(target)) return "pdf";
+  if (/\.md$/i.test(target)) return "note";
+  let host = "", path = "";
+  try {
+    const u = new URL(target);
+    host = u.hostname.replace(/^(www|m|mobile)\./, "");
+    path = u.pathname;
+  } catch {
+    return "link";
+  }
+  if (VIDEO_HOSTS.includes(host)) return "video";
+  if (host === "x.com" || host === "twitter.com") return "thread";
+  if (host === "docs.google.com" && path.startsWith("/presentation/")) return "slides";
+  return "link";
+}
+
+/** File name of a material kept for the paper: <paper-slug>--<name>.<ext>. */
+export function materialFileName(paperSlug, fileName) {
+  const dot = fileName.lastIndexOf(".");
+  const ext = dot > 0 ? fileName.slice(dot + 1).toLowerCase() : "";
+  const stem = ascii(dot > 0 ? fileName.slice(0, dot) : fileName).slice(0, 60) || "file";
+  return `${paperSlug}--${stem}${ext ? `.${ext}` : ""}`;
+}
+
+const obsidianUrl = (vaultName, path) =>
+  `obsidian://open?${vaultName ? `vault=${encodeURIComponent(vaultName)}&` : ""}file=${encodeURIComponent(path)}`;
+
+/** The Zotero child item of a material. target = an address, or a path inside the vault. */
+export function materialItem({ parent, title = "", target, vaultName = "" }) {
+  const kind = materialKind(target);
+  const isFile = kind === "pdf" || kind === "note";
+  return {
+    itemType: "attachment",
+    linkMode: "linked_url",
+    parentItem: parent,
+    title: title.trim() || target,
+    url: isFile ? obsidianUrl(vaultName, target) : target,
+    tags: [{ tag: MATERIAL_TAG }, { tag: `material-${kind}` }],
+  };
+}
+
+/** Is this Zotero child a material that is still attached? */
+export const isMaterial = (it) => !it.data.deleted && (it.data.tags || []).some((t) => t.tag === MATERIAL_TAG);
+
+/** Zotero child item -> { key, title, kind, url, path } (path: inside the vault, "" for an address). */
+export function materialView(it) {
+  const url = it.data.url || "";
+  const kind = (it.data.tags || []).map((t) => /^material-(\w+)$/.exec(t.tag)?.[1]).find(Boolean) || "link";
+  let path = "";
+  if (url.startsWith("obsidian://")) {
+    try {
+      path = new URL(url).searchParams.get("file") || "";
+    } catch {
+      path = ""; // an address typed by hand in Zotero: shown as a plain link
+    }
+  }
+  return { key: it.key, title: it.data.title || url, kind, url, path };
+}
+
+/** Where a click on a material goes: a PDF kept in 0_media/papers/ opens in the easy-read viewer. */
+export const materialHref = (m, viewerUrl) =>
+  m.kind === "pdf" && m.path.startsWith("0_media/papers/") ? `${viewerUrl}?vault=${encodeURIComponent(m.path)}` : m.url;
+
+/** Paper note with one material line in "## Материалы" (the section is created before "## Заметки").
+ * Append-only: unchanged when the material's Zotero key is already mentioned. */
+export function withMaterialLine(text, m) {
+  const mark = `%%m:${m.key}%%`;
+  if (text.includes(mark)) return text;
+  const link = m.path ? `[[${m.path.split("/").at(-1).replace(/\.md$/, "")}]]` : `[${m.title.replace(/[[\]]/g, "")}](${m.url})`;
+  const line = `- ${MATERIAL_KINDS[m.kind] || m.kind}: ${link}${m.path ? ` — ${m.title}` : ""} ${mark}`;
+  const lines = text.split("\n");
+  let head = lines.findIndex((l) => l.trim() === "## Материалы");
+  if (head < 0) {
+    const notes = lines.findIndex((l) => l.trim() === "## Заметки");
+    if (notes < 0) return text;
+    lines.splice(notes, 0, "## Материалы", "");
+    head = notes;
+  }
+  let end = lines.findIndex((l, i) => i > head && /^#{1,6} /.test(l));
+  if (end < 0) end = lines.length;
+  let last = end;
+  while (last > head + 1 && lines[last - 1].trim() === "") last--;
+  return [...lines.slice(0, last), line, "", ...lines.slice(end)].join("\n");
+}
+
 export function inboxLine(item, slug) {
   const source = sourceOf(item);
   const link = linkOf(item);

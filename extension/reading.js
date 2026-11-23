@@ -1,12 +1,17 @@
 // Reading list: the papers of the chosen Zotero collection, grouped by sub-collection.
 // "Читать" opens the PDF kept in the vault when there is one, else the paper's address.
-import { getVault, permission, keepPdf } from "./vault-pdf.js";
+// Every paper also shows its materials (supplementary PDFs, notes, videos, threads, slides): links that are
+// always visible, and a block to add and remove them.
+import { getVault, permission, keepPdf, saveMaterial, vaultPathOf } from "./vault-pdf.js";
+import * as P from "./papers.js";
 
 const $ = (id) => document.getElementById(id);
 const VIEWER = chrome.runtime.getURL("viewer.html");
 let groups = [];
 let vault = "";
 let attachTo = null; // the paper waiting for a file from the picker
+const managing = new Set(); // keys of the papers whose materials block is open (kept over a reload of the list)
+const MATERIAL_FILES = [{ description: "PDF и заметки Markdown", accept: { "application/pdf": [".pdf"], "text/markdown": [".md"] } }];
 
 function say(text, isError = false) {
   $("status").textContent = text;
@@ -84,6 +89,112 @@ async function attach(paper, file) {
   }
 }
 
+/* ---------- materials of a paper ---------- */
+
+const materialLabel = (m) => `${P.MATERIAL_KINDS[m.kind] || m.kind}: ${m.title}`;
+const materialLink = (m) => el("a", { href: P.materialHref(m, VIEWER), target: "_blank", rel: "noreferrer", text: materialLabel(m) });
+
+/** One picked or dropped file becomes a material: a file of the vault is linked where it is, any other file
+ * is copied (PDF -> 0_media/papers/, .md -> 1_education/papers/materials/). -> the line for the status. */
+async function addFile(p, dir, handle) {
+  const file = await handle.getFile();
+  const kind = P.materialKind(file.name);
+  if (kind !== "pdf" && kind !== "note") return `${file.name}: не прикреплён, нужен PDF или .md`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let path = await vaultPathOf(dir, handle);
+  let how = "на месте";
+  if (!path) {
+    if (!p.slug) return `${file.name}: не прикреплён, у статьи ещё нет заметки в Obsidian (нужна синхронизация plan-browser)`;
+    const saved = await saveMaterial(dir, P.materialFileName(p.slug, file.name), bytes);
+    path = saved.path;
+    how = saved.existed ? "такой файл уже был в vault" : "скопирован в vault";
+  }
+  const res = await zotero("materialAdd", { key: p.key, title: file.name, target: path, hash: kind === "pdf" ? await sha256(bytes) : null });
+  return `${file.name} → ${path} (${res.existed ? "уже прикреплён" : how})`;
+}
+
+/** Attach several files; one failure does not stop the rest. Access to the vault is confirmed by the caller. */
+async function addFiles(p, handles) {
+  const dir = await getVault();
+  const lines = [];
+  let failed = false;
+  for (const handle of handles) {
+    try {
+      lines.push(await addFile(p, dir, handle));
+    } catch (e) {
+      failed = true;
+      lines.push(`${handle.name}: не прикреплён, ${e.message}`);
+    }
+  }
+  managing.add(p.key);
+  await load();
+  say(`Материалы «${p.label}»: ${lines.join("; ")}`, failed);
+}
+
+async function addLink(p, address, title) {
+  let url;
+  try {
+    url = new URL(address.trim()).href;
+  } catch {
+    say("Нужен полный адрес, например https://youtu.be/…", true);
+    return;
+  }
+  try {
+    const res = await zotero("materialAdd", { key: p.key, title: title.trim(), target: url });
+    managing.add(p.key);
+    await load();
+    say(res.existed ? `Эта ссылка уже прикреплена к «${p.label}».` : `Прикреплено к «${p.label}»: ${P.MATERIAL_KINDS[P.materialKind(url)]} ${url}`);
+  } catch (e) {
+    say(`Ссылка не прикреплена: ${e.message}`, true);
+  }
+}
+
+/** The block behind «Материалы…»: every material with «Убрать», «Добавить файлы…», and the link form. */
+function manageBox(p) {
+  const list = el("ul", {}, p.materials.map((m) => {
+    const drop = el("button", { type: "button", text: "Убрать", "aria-label": `Убрать материал: ${m.title}` });
+    drop.addEventListener("click", async () => {
+      if (!confirm(`Убрать материал «${m.title}» у статьи «${p.label}»?\nЗапись уйдёт в корзину Zotero. Файл в vault останется.`)) return;
+      drop.disabled = true;
+      try {
+        await zotero("materialRemove", { materialKey: m.key });
+        await load();
+        say(`Материал убран: ${m.title}. Его строка в заметке статьи остаётся: удали её в Obsidian, если не нужна.`);
+      } catch (e) {
+        say(`Не убрано: ${e.message}`, true);
+        drop.disabled = false;
+      }
+    });
+    return el("li", {}, [materialLink(m), drop]);
+  }));
+  const files = el("button", { type: "button", text: "Добавить файлы…", title: "PDF (supplementary, ответы рецензентам) и заметки .md (транскрипт, заметка о видео); можно несколько" });
+  files.addEventListener("click", async () => {
+    if (!(await vaultReady())) return;
+    if (!window.__pickFiles && !navigator.userActivation.isActive) {
+      say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файлы.");
+      return;
+    }
+    let handles;
+    try {
+      // tests inject the picked handles (window.__pickFiles), as they inject the vault folder
+      handles = await (window.__pickFiles ? window.__pickFiles() : window.showOpenFilePicker({ multiple: true, types: MATERIAL_FILES }));
+    } catch (e) {
+      if (e.name !== "AbortError") say(`Файлы не выбраны: ${e.message}`, true);
+      return;
+    }
+    await addFiles(p, handles);
+  });
+  const address = el("input", { type: "url", placeholder: "https://… (видео, тред в X, Google Slides, любая ссылка)", "aria-label": `Адрес материала для ${p.label}` });
+  const title = el("input", { type: "text", placeholder: "Название (необязательно)", "aria-label": `Название материала для ${p.label}` });
+  const add = el("button", { type: "button", text: "Добавить ссылку" });
+  add.addEventListener("click", () => addLink(p, address.value, title.value));
+  return el("div", { class: "manage" }, [
+    ...(p.materials.length ? [list] : [el("p", { class: "soft", text: "Материалов пока нет." })]),
+    el("div", { class: "bar" }, [files]),
+    el("div", { class: "bar" }, [address, title, add]),
+  ]);
+}
+
 function row(p) {
   const actions = el("div", { class: "bar" }, [
     el("a", { class: "btn", href: readUrl(p) || "#", target: "_blank", rel: "noreferrer", text: "Читать" }),
@@ -100,6 +211,16 @@ function row(p) {
     else say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файл.");
   });
   actions.append(pick);
+  const more = el("button", { type: "button", "aria-expanded": String(managing.has(p.key)), text: `Материалы… (${p.materials.length})`, title: "Добавить или убрать материалы статьи" });
+  const box = manageBox(p);
+  box.hidden = !managing.has(p.key);
+  more.addEventListener("click", () => {
+    box.hidden = !box.hidden;
+    more.setAttribute("aria-expanded", String(!box.hidden));
+    if (box.hidden) managing.delete(p.key);
+    else managing.add(p.key);
+  });
+  actions.append(more);
   const drop = el("button", { type: "button", text: "Удалить из списка…" });
   drop.addEventListener("click", async () => {
     if (!confirm(`Убрать «${p.label}» из списка чтения?\nЗапись в Zotero, заметки и PDF останутся. Задача закроется при следующей синхронизации plan-browser.`)) return;
@@ -119,16 +240,27 @@ function row(p) {
     el("p", { class: "title" }, [document.createTextNode(`${p.label} `), el("span", { text: `— ${p.title}` })]),
     actions,
     el("p", { class: "soft", text: p.pdf ? `PDF ✓ ${p.pdf}` : "PDF в vault нет" }),
+    ...(p.materials.length ? [el("p", { class: "soft mats" }, [document.createTextNode("Материалы:"), ...p.materials.map(materialLink)])] : []),
+    box,
   ]);
   item.addEventListener("dragover", (e) => {
     e.preventDefault();
     item.classList.add("drag");
   });
   item.addEventListener("dragleave", () => item.classList.remove("drag"));
-  item.addEventListener("drop", (e) => {
+  item.addEventListener("drop", async (e) => {
     e.preventDefault();
     item.classList.remove("drag");
-    attach(p, e.dataTransfer.files[0]);
+    const dropped = [...e.dataTransfer.files];
+    // one PDF on a paper without a PDF is the paper's own PDF; everything else is a material
+    if (!p.pdf && dropped.length === 1 && dropped[0].type === "application/pdf") {
+      attach(p, dropped[0]);
+      return;
+    }
+    // the handles must be asked for inside the event; a handle tells whether the file already lies in the vault
+    const asked = [...e.dataTransfer.items].filter((it) => it.kind === "file").map((it) => it.getAsFileSystemHandle());
+    if (!(await vaultReady())) return;
+    await addFiles(p, (await Promise.all(asked)).filter((h) => h && h.kind === "file"));
   });
   return item;
 }

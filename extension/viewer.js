@@ -54,6 +54,7 @@ window.__erDoc = () => ({
   text: state.local.map((b) => b.text || "").join("\n").slice(0, ID_TEXT),
   meta: {},
   isPdf: true,
+  inVault: Boolean(state.source?.vault), // opened from the vault: there is nothing to save
 });
 window.__erPdf = { save: (slug, interactive) => keepPdf(slug, state.bytes, { interactive }) };
 // for notes.js: in PDF view a quote is searched and highlighted in the text layers of the pages
@@ -392,7 +393,7 @@ async function openFromVault(path) {
     setState("error");
     return;
   }
-  await openFile(file);
+  await openPdf(new Uint8Array(await file.arrayBuffer()), { url: null, name: file.name, vault: path });
 }
 
 /* notes.js reloads its state for the new document; a PDF opened for a known paper is tied to it first */

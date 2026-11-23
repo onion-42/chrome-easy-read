@@ -40,6 +40,9 @@ async function fakeZotero(sw, papers = []) {
       }
       if (one?.[2]) return json(url.searchParams.get("start") === "0" ? all.filter((it) => it.data.parentItem === one[1]) : []);
       if (one) return z.items.has(one[1]) ? json(z.items.get(one[1]), 200, z.items.get(one[1]).version) : json(null, 404);
+      if (path === "/items" && url.searchParams.get("itemType") === "attachment") { // the materials of every paper
+        return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.deleted && (it.data.tags || []).some((t) => t.tag === url.searchParams.get("tag"))) : []);
+      }
       if (path === "/items") {
         const q = url.searchParams.get("q") || "";
         return json(all.filter((it) => (it.data.DOI || "").toLowerCase() === q.toLowerCase() || it.data.url === q));
@@ -472,4 +475,74 @@ test("reading list: «Заметки» opens the notes tab of the paper", async 
   await expect(tab.locator("#er-notes .er-n-item")).toContainText("from before");
   await tab.locator("#er-notes .er-n-item").click(); // no article tab is known
   await expect(tab.locator("#status")).toContainText("Вкладка статьи закрыта");
+});
+
+const MEYLAN = { key: "SEEDED01", data: { itemType: "journalArticle", title: "A paper", creators: [{ lastName: "Meylan" }], date: "2022", extra: "obsidian: 1_education/papers/meylan-2022-tls.md" } };
+const materialsOf = async (sw) => (await zItems(sw)).filter((it) => !it.data.deleted && (it.data.tags || []).some((t) => t.tag === "paper-material"));
+
+test("reading list: a link and files become materials of the paper, their links are always visible, one can be removed", async ({ context, sw }) => {
+  await fakeZotero(sw, [MEYLAN]);
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${new URL(sw.url()).host}/reading.html`);
+  // the vault is a folder inside OPFS, so that a file can also lie outside it
+  await page.evaluate(async () => {
+    const root = await navigator.storage.getDirectory();
+    const put = async (dir, name, text) => {
+      const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+      await w.write(text);
+      await w.close();
+      return dir.getFileHandle(name);
+    };
+    const vault = (window.__vaultOverride = await root.getDirectoryHandle("vault", { create: true }));
+    const work = await vault.getDirectoryHandle("2_work", { create: true });
+    const inside = await put(work, "talk transcript.md", "# transcript");
+    const outside = await put(root, "Supplementary Tables.pdf", "%PDF-1.4 supplementary");
+    window.__pickFiles = async () => [outside, inside];
+  });
+
+  const row = page.locator("li", { hasText: "Meylan 2022" }).first();
+  await expect(row.locator(".mats")).toHaveCount(0);
+  await row.getByRole("button", { name: /Материалы…/ }).click();
+  await row.getByLabel("Адрес материала для Meylan 2022").fill("https://youtu.be/abc123");
+  await row.getByLabel("Название материала для Meylan 2022").fill("Talk at ASCO");
+  await row.getByRole("button", { name: "Добавить ссылку" }).click();
+  await expect(row.locator(".mats a")).toHaveCount(1);
+  await row.getByRole("button", { name: "Добавить файлы…" }).click();
+  await expect(row.locator(".mats a")).toHaveCount(3);
+  await expect(page.locator("#status")).toContainText("скопирован в vault");
+  await expect(page.locator("#status")).toContainText("talk transcript.md → 2_work/talk transcript.md (на месте)");
+
+  const viewer = `chrome-extension://${new URL(sw.url()).host}/viewer.html`;
+  await expect(row.locator(".mats a", { hasText: "видео: Talk at ASCO" })).toHaveAttribute("href", "https://youtu.be/abc123");
+  await expect(row.locator(".mats a", { hasText: "PDF: Supplementary Tables.pdf" })).toHaveAttribute("href", `${viewer}?vault=${encodeURIComponent("0_media/papers/meylan-2022-tls--supplementary-tables.pdf")}`);
+  await expect(row.locator(".mats a", { hasText: "заметка: talk transcript.md" })).toHaveAttribute("href", "obsidian://open?vault=vault&file=2_work%2Ftalk%20transcript.md");
+
+  const items = await materialsOf(sw);
+  expect(items.map((it) => it.data.tags.map((t) => t.tag).join(" ")).sort()).toEqual(["paper-material material-note", "paper-material material-pdf", "paper-material material-video"]);
+  expect(items.every((it) => it.data.parentItem === "SEEDED01" && it.data.linkMode === "linked_url")).toBe(true);
+  const copied = await page.evaluate(async () => {
+    let dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("vault");
+    for (const name of ["0_media", "papers"]) dir = await dir.getDirectoryHandle(name);
+    return (await (await dir.getFileHandle("meylan-2022-tls--supplementary-tables.pdf")).getFile()).text();
+  });
+  expect(copied).toBe("%PDF-1.4 supplementary");
+
+  page.once("dialog", (d) => d.accept());
+  await row.getByRole("button", { name: "Убрать материал: Talk at ASCO" }).click();
+  await expect(row.locator(".mats a")).toHaveCount(2);
+  expect(await materialsOf(sw)).toHaveLength(2);
+});
+
+test("notes panel: links to the materials of the open paper; a PDF of the vault opens in the viewer", async ({ context, sw, server }) => {
+  const paper = { key: "SEEDED01", data: { itemType: "journalArticle", title: "TLS networks in three dimensions", creators: [{ lastName: "Lin" }], date: "2026", DOI: "10.1234/tls.2026.001", extra: "obsidian: 1_education/papers/lin-2026-tls.md" } };
+  const mat = (key, title, url, kind) => ({ key, data: { itemType: "attachment", linkMode: "linked_url", parentItem: "SEEDED01", title, url, tags: [{ tag: "paper-material" }, { tag: `material-${kind}` }] } });
+  await fakeZotero(sw, [paper, mat("MAT00001", "Thread", "https://x.com/a/status/1", "thread"), mat("MAT00002", "Supplementary", "obsidian://open?vault=vault&file=0_media%2Fpapers%2Flin-2026-tls--supp.pdf", "pdf")]);
+  const page = await openArticle(context, sw, server);
+  await openNotes(sw, "noted.html");
+  const mats = page.locator("#er-notes .er-n-mats");
+  await expect(mats.locator("a")).toHaveCount(2);
+  await expect(mats.locator("a", { hasText: "тред: Thread" })).toHaveAttribute("href", "https://x.com/a/status/1");
+  const opened = context.waitForEvent("page");
+  await mats.locator("a", { hasText: "PDF: Supplementary" }).click();
+  expect((await opened).url()).toContain(`/viewer.html?vault=${encodeURIComponent("0_media/papers/lin-2026-tls--supp.pdf")}`);
 });

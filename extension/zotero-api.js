@@ -68,6 +68,8 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
     collectionTop: (key) => paged(`${u()}/collections/${key}/items/top?includeTrashed=1`),
     notes: () => paged(`${u()}/items?itemType=note&includeTrashed=1`),
     children: (key) => paged(`${u()}/items/${key}/children`),
+    // the materials of every paper in one paged request (trashed ones are not listed)
+    materials: () => paged(`${u()}/items?itemType=attachment&tag=paper-material`),
     item: async (key) => (await call("GET", `${u()}/items/${key}`)).data,
     // Zotero's search (?q=) does not look into the DOI field (checked on the live API: no hits for a DOI that is
     // there), so the library's top-level items are read and compared here. One request per 100 items.

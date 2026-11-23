@@ -14,7 +14,7 @@
   var doc = document;
   var MAX_QUOTE = 2000;
   var ARTICLE_META = "meta[name=citation_doi], meta[name=citation_pmid], meta[name=citation_title]";
-  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null, full: "" }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "", gen: 0 };
+  var st = { paper: null, notes: [], pdfUrl: null, pending: { quote: "", page: null, full: "" }, editing: null, summary: false, ranges: [], busy: false, P: null, vault: "", gen: 0, materials: [] };
   // st.gen counts documents: the viewer can open another PDF while a request is out, and a late answer
   // for the previous document must never be applied to (or saved as) the new one
   var viewerDoc = typeof window.__erDoc === "function" ? window.__erDoc : null;
@@ -40,6 +40,7 @@
     "#er-notes .er-n-item .er-n-quote{grid-column:1}",
     "#er-notes .er-n-item button{grid-column:2;grid-row:1;align-self:start;min-height:28px;padding:2px 8px}",
     "#er-notes .er-n-msg{min-height:1.2em}",
+    "#er-notes .er-n-mats{gap:2px 12px}",
     "#er-notes .er-n-tools button{min-height:28px;min-width:30px;padding:2px 8px}",
     "#er-notes .er-n-preview{border:1px dashed var(--er-b);border-radius:8px;padding:6px 8px;overflow-wrap:anywhere}",
     "#er-notes .er-n-body{grid-column:1;overflow-wrap:anywhere}",
@@ -114,6 +115,7 @@
   var statusEl = el("div", { class: "er-n-soft", role: "status" });
   var linksEl = el("div", { class: "er-n-row" });
   var pdfEl = el("div", { class: "er-n-row er-n-soft" });
+  var matsEl = el("div", { class: "er-n-row er-n-soft er-n-mats", hidden: "" }); // links only; they are managed in the reading list
   var quoteEl = el("blockquote", { class: "er-n-quote", hidden: "" });
   var input = el("textarea", { "aria-label": "Текст заметки", placeholder: "Комментарий к выделенному тексту…" });
 
@@ -190,7 +192,7 @@
   var listEl = el("div");
   var panel = el("div", { id: "er-notes", class: "er-ui", role: "complementary", "aria-label": "Заметки к статье", hidden: "" }, [
     el("div", { class: "er-n-head" }, [titleEl, el("span", { class: "er-n-row" }, [tabBtn, closeBtn])]),
-    statusEl, linksEl, pdfEl, quoteEl, toolsEl, input, previewEl,
+    statusEl, linksEl, pdfEl, matsEl, quoteEl, toolsEl, input, previewEl,
     el("div", { class: "er-n-row" }, [saveBtn, cancelBtn]),
     msgEl, extraEl, listHead, listEl
   ]);
@@ -273,6 +275,25 @@
     listEl.textContent = "";
     st.notes.forEach(function (n) { listEl.appendChild(noteItem(n)); });
     renderPdf();
+    renderMaterials();
+  }
+
+  /* links to everything attached to the paper (supplementary PDFs, notes, videos, threads, slides) */
+  function renderMaterials() {
+    matsEl.textContent = "";
+    matsEl.hidden = !st.materials.length;
+    if (matsEl.hidden) return;
+    var viewer = chrome.runtime.getURL("viewer.html");
+    matsEl.appendChild(doc.createTextNode("Материалы:"));
+    st.materials.forEach(function (m) {
+      var href = st.P ? st.P.materialHref(m, viewer) : m.url;
+      var a = link((st.P ? st.P.MATERIAL_KINDS[m.kind] || m.kind : m.kind) + ": " + m.title, href);
+      if (href.indexOf(viewer) === 0) { // a web page cannot open the viewer itself: the service worker does
+        a.addEventListener("click", function (e) { e.preventDefault(); chrome.runtime.sendMessage({ type: "open-vault-pdf", path: m.path }); });
+      }
+      matsEl.appendChild(a);
+    });
+    matsEl.appendChild(button("Reading list", "Добавить или убрать материалы: reading list", function () { chrome.runtime.sendMessage({ type: "open-reading-list" }); }));
   }
 
   function noteItem(n) {
@@ -311,7 +332,7 @@
       var res = await send(op, extra);
       if (gen !== st.gen) return false; // another document was opened meanwhile
       st.vault = res.vault || "";
-      if (res.paper !== undefined) { st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl; }
+      if (res.paper !== undefined) { st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl; st.materials = res.materials || []; }
       say("");
       await paint();
       render();
@@ -414,7 +435,7 @@
   /* in the viewer: once the paper is known, the open file goes to 0_media/papers/<slug>.pdf */
   async function keepPdf(interactive) {
     var p = st.paper;
-    if (!viewerPdf || !p || p.pdf || !p.slug) return;
+    if (!viewerPdf || !p || p.pdf || !p.slug || docInfo().inVault) return; // (a material PDF of the vault is not the paper's PDF)
     var gen = st.gen, hash = docInfo().hash; // the file that is open now; its bytes are taken in this same tick
     try {
       var res = await viewerPdf.save(p.slug, interactive);
@@ -549,7 +570,7 @@
       var res = await send("status");
       if (gen !== st.gen) return;
       st.vault = res.vault || "";
-      st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl;
+      st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl; st.materials = res.materials || [];
       await paint();
       if (!panel.hidden) render();
       keepPdf(false);
@@ -585,7 +606,7 @@
     if (!s.enabled) { if (!viewerDoc) close(); if (window.CSS && CSS.highlights) CSS.highlights.delete("er-note"); return; }
     if (st.notes.length) paint().then(function () { if (!panel.hidden) render(); });
   });
-  window.addEventListener("er-doc", function () { st.gen++; st.paper = null; st.notes = []; resetForm(); refresh(); });
+  window.addEventListener("er-doc", function () { st.gen++; st.paper = null; st.notes = []; st.materials = []; resetForm(); refresh(); });
 
   doc.body.appendChild(noteBtn);
   doc.body.appendChild(panel);
