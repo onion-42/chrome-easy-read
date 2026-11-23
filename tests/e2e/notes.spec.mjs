@@ -69,10 +69,10 @@ const select = (page, selector) => page.evaluate((s) => {
 
 const highlights = (page) => page.evaluate(() => [...(CSS.highlights.get("er-note") ?? [])].map((r) => r.toString()));
 
-async function openArticle(context, sw, server) {
+async function openArticle(context, sw, server, file = "noted.html") {
   await sw.evaluate((p) => chrome.storage.sync.set({ settings: p }), PROFILE);
   const page = await context.newPage();
-  const url = `${server}/noted.html`;
+  const url = `${server}/${file}`;
   await page.goto(url);
   await toggleSite(sw, url);
   await expect(page.locator("#er-note")).toBeVisible();
@@ -370,4 +370,53 @@ test("quick note: the hotkey saves the selected text at once, to Zotero, the pan
   await quick(); // nothing selected: the panel, no note
   await expect(panel).toBeVisible();
   expect(await notesOf(sw)).toHaveLength(1);
+});
+
+test("text tools: buttons and keys mark the selection, the preview and the list show the result", async ({ context, sw, server }) => {
+  await fakeZotero(sw);
+  const page = await openArticle(context, sw, server);
+  await openNotes(sw, "noted.html");
+  const panel = page.locator("#er-notes");
+  const field = panel.getByLabel("Текст заметки");
+  const pick = (from, to) => field.evaluate((f, [a, b]) => f.setSelectionRange(a, b), [from, to]);
+
+  await field.fill("важно и подчёркнуто");
+  await pick(0, 5);
+  await panel.getByRole("button", { name: "Жирное (Ctrl+B)" }).click();
+  await expect(field).toHaveValue("**важно** и подчёркнуто");
+  await panel.getByRole("button", { name: "Жирное (Ctrl+B)" }).click(); // a second press takes the marks off
+  await expect(field).toHaveValue("важно и подчёркнуто");
+  await panel.getByRole("button", { name: "Жирное (Ctrl+B)" }).click();
+  await pick(12, 23);
+  await field.press("Control+u");
+  await expect(field).toHaveValue("**важно** и <u>подчёркнуто</u>");
+  await expect(panel.locator(".er-n-preview strong")).toHaveText("важно");
+  await expect(panel.locator(".er-n-preview u")).toHaveText("подчёркнуто");
+
+  await field.fill("**важно** и <u>подчёркнуто</u>\n\nраз\nдва");
+  await pick(33, 40);
+  await panel.getByRole("button", { name: "Список" }).click();
+  await expect(field).toHaveValue("**важно** и <u>подчёркнуто</u>\n\n- раз\n- два");
+  await field.press("Control+Enter");
+
+  const item = panel.locator(".er-n-item");
+  await expect(item).toHaveCount(1);
+  await expect(item.locator("strong")).toHaveText("важно");
+  await expect(item.locator("u")).toHaveText("подчёркнуто");
+  await expect(item.locator("li")).toHaveCount(2);
+  await expect(item).not.toContainText("**");
+  await expect(panel.locator(".er-n-preview")).toBeHidden(); // the field is empty again
+  const [note] = await notesOf(sw);
+  expect(note.data.note).toBe("<p><strong>важно</strong> и <u>подчёркнуто</u></p>\n<ul><li>раз</li><li>два</li></ul>");
+});
+
+test("on a page that requires Trusted Types the notes list is still shown", async ({ context, sw, server }) => {
+  await fakeZotero(sw);
+  const page = await openArticle(context, sw, server, "noted-tt.html");
+  await openNotes(sw, "noted-tt.html");
+  const panel = page.locator("#er-notes");
+  await panel.getByLabel("Текст заметки").fill("**важно** здесь");
+  await panel.getByLabel("Текст заметки").press("Control+Enter");
+  await expect(panel.locator(".er-n-item")).toContainText("важно");
+  await expect(panel.locator(".er-n-item")).toContainText("здесь");
 });

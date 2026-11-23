@@ -92,6 +92,7 @@ folder of the vault (the one that holds `.obsidian`; a subfolder is refused).
 | Quick note on selected text | select text, **Alt+Shift+N** (or right-click → «Заметка к выделению»): the quote is saved at once, to Zotero, the list in the panel and the vault. The new note stays open in the field: add a comment and press **Ctrl+Enter**, or press **Escape** to leave it as it is. Nothing selected: the panel opens |
 | Note with a comment first | select text, 📝 → comment → **Ctrl+Enter** |
 | Save the paper without a note | right-click → «Сохранить статью в Zotero», or the button in the panel |
+| Format the text of a note | buttons above the field: **Ж** bold (Ctrl+B), *К* italic (Ctrl+I), Ч underline (Ctrl+U), З strike, В highlight, code, link (Ctrl+K), x² / x₂, list, quote. They put markdown around the selection (`**x**`, `*x*`, `<u>x</u>`, `~~x~~`, `==x==`, `<sup>`, `<sub>`); a second press takes it off. Under the field a preview shows the formatted text; the list of notes shows it formatted too. The same marks are kept in Zotero and in the vault file, where Obsidian renders them |
 | Edit a note | ✎ in the list; if the note changed in Zotero meanwhile, both texts are shown and yours stays in the field |
 | Summary of the whole paper | «Вывод по статье»: one per paper, first in the list (Zotero tag `summary`) |
 | See earlier notes | quotes are highlighted in the text; click a highlight to open its note |

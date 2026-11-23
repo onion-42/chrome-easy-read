@@ -230,16 +230,24 @@ const unescapeHtml = (s) =>
   s.replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0*39;|&apos;/g, "'")
     .replace(/&#(\d+);/g, (m, n) => (Number(n) <= 0x10ffff ? String.fromCodePoint(Number(n)) : m)).replace(/&amp;/g, "&");
 
+const PLAIN_TAGS = ["u", "sub", "sup"]; // tags typed as HTML in markdown: allowed bare, without attributes
+const HIGHLIGHT = "#ffd40080";          // Zotero's yellow highlight in notes
+
 function inlineToHtml(text) {
   const kept = [];
   const keep = (html) => `\u0000${kept.push(html) - 1}\u0000`;
   const out = text
     .replace(/`([^`]+)`/g, (_, c) => keep(`<code>${escapeHtml(c)}</code>`))
     .replace(/\[([^\]]+)\]\(([^\s)]+)\)/g, (_, label, href) => keep(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`));
-  return escapeHtml(out)
+  let html = escapeHtml(out)
     .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/\u0000(\d+)\u0000/g, (_, i) => kept[Number(i)]);
+    .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, "<s>$1</s>")
+    .replace(/==(?=\S)(.+?)(?<=\S)==/g, `<span style="background-color: ${HIGHLIGHT}">$1</span>`);
+  for (const tag of PLAIN_TAGS) {
+    html = html.replace(new RegExp(`&lt;${tag}&gt;(.+?)&lt;/${tag}&gt;`, "g"), `<${tag}>$1</${tag}>`);
+  }
+  return html.replace(/\u0000(\d+)\u0000/g, (_, i) => kept[Number(i)]);
 }
 
 export function mdToHtml(md) {
@@ -273,7 +281,7 @@ function parseHtml(html) {
         const at = stack.findLastIndex((n) => n.tag === tag);
         if (at > 0) stack.length = at;
       } else {
-        const node = { tag, kids: [], href: /href\s*=\s*["']([^"']*)["']/i.exec(m[3])?.[1] };
+        const node = { tag, kids: [], href: /href\s*=\s*["']([^"']*)["']/i.exec(m[3])?.[1], marked: /style\s*=\s*["'][^"']*background-color/i.test(m[3]) };
         top.kids.push(node);
         if (!VOID.has(tag) && !m[3].trim().endsWith("/")) stack.push(node);
       }
@@ -290,6 +298,9 @@ function inlineMd(node) {
   if (node.tag === "strong" || node.tag === "b") return `**${inner}**`;
   if (node.tag === "em" || node.tag === "i") return `*${inner}*`;
   if (node.tag === "code") return `\`${inner}\``;
+  if (PLAIN_TAGS.includes(node.tag)) return `<${node.tag}>${inner}</${node.tag}>`;
+  if (node.tag === "s" || node.tag === "strike" || node.tag === "del") return `~~${inner}~~`;
+  if (node.tag === "mark" || (node.tag === "span" && node.marked)) return `==${inner}==`;
   if (node.tag === "a" && node.href) return `[${inner}](${unescapeHtml(node.href)})`;
   return inner;
 }

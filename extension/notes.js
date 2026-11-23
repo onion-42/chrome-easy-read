@@ -37,6 +37,14 @@
     "#er-notes .er-n-item .er-n-quote{grid-column:1}",
     "#er-notes .er-n-item button{grid-column:2;grid-row:1;align-self:start;min-height:28px;padding:2px 8px}",
     "#er-notes .er-n-msg{min-height:1.2em}",
+    "#er-notes .er-n-tools button{min-height:28px;min-width:30px;padding:2px 8px}",
+    "#er-notes .er-n-preview{border:1px dashed var(--er-b);border-radius:8px;padding:6px 8px;overflow-wrap:anywhere}",
+    "#er-notes .er-n-body{grid-column:1;overflow-wrap:anywhere}",
+    "#er-notes :is(.er-n-body,.er-n-preview) :is(p,ul,ol,blockquote){margin:0 0 4px}",
+    "#er-notes :is(.er-n-body,.er-n-preview) :is(ul,ol){padding-left:1.3em}",
+    "#er-notes :is(.er-n-body,.er-n-preview) blockquote{border-left:3px solid var(--er-a);padding-left:10px}",
+    "#er-notes :is(.er-n-body,.er-n-preview) mark{background-color:#ffd40080;color:inherit}",
+    "#er-notes :is(.er-n-body,.er-n-preview) code{font-family:ui-monospace,monospace;font-size:.92em}",
     "::highlight(er-note){background-color:color-mix(in srgb,#f2c14e 45%,transparent)}"
   ].join("\n");
   doc.head.appendChild(css);
@@ -105,6 +113,66 @@
   var pdfEl = el("div", { class: "er-n-row er-n-soft" });
   var quoteEl = el("blockquote", { class: "er-n-quote", hidden: "" });
   var input = el("textarea", { "aria-label": "Текст заметки", placeholder: "Комментарий к выделенному тексту…" });
+
+  /* text tools: wrap the selection of the note field in markdown; a second press takes the marks off */
+  function wrap(before, after) {
+    var v = input.value, s = input.selectionStart, e = input.selectionEnd;
+    var inside = v.slice(s, e);
+    var has = s >= before.length && v.slice(s - before.length, s) === before && v.slice(e, e + after.length) === after;
+    if (has) {
+      input.value = v.slice(0, s - before.length) + inside + v.slice(e + after.length);
+      input.setSelectionRange(s - before.length, e - before.length);
+    } else {
+      input.value = v.slice(0, s) + before + inside + after + v.slice(e);
+      input.setSelectionRange(s + before.length, e + before.length);
+    }
+    input.focus(); preview();
+  }
+
+  /* line tools (list, quote): the mark goes to the start of every selected line; a second press removes it */
+  function prefix(mark) {
+    var v = input.value, s = input.selectionStart, e = input.selectionEnd;
+    var from = v.lastIndexOf("\n", s - 1) + 1, to = v.indexOf("\n", e);
+    if (to < 0) to = v.length;
+    var lines = v.slice(from, to).split("\n");
+    var all = lines.every(function (l) { return l.indexOf(mark) === 0; });
+    var next = lines.map(function (l) { return all ? l.slice(mark.length) : mark + l; }).join("\n");
+    input.value = v.slice(0, from) + next + v.slice(to);
+    input.setSelectionRange(from, from + next.length);
+    input.focus(); preview();
+  }
+
+  var LINK_STUB = "https://";
+  function addLink() {
+    var s = input.selectionStart, e = input.selectionEnd, text = input.value.slice(s, e) || "текст";
+    input.value = input.value.slice(0, s) + "[" + text + "](" + LINK_STUB + ")" + input.value.slice(e);
+    var at = s + text.length + 3; // the address is selected, ready to be typed or pasted over
+    input.setSelectionRange(at, at + LINK_STUB.length);
+    input.focus(); preview();
+  }
+
+  /* [text, label, action, Ctrl+key, style of the button's own text] */
+  var TOOLS = [
+    ["Ж", "Жирное (Ctrl+B)", function () { wrap("**", "**"); }, "b", "font-weight:700"],
+    ["К", "Курсив (Ctrl+I)", function () { wrap("*", "*"); }, "i", "font-style:italic"],
+    ["Ч", "Подчёркивание (Ctrl+U)", function () { wrap("<u>", "</u>"); }, "u", "text-decoration:underline"],
+    ["З", "Зачёркивание", function () { wrap("~~", "~~"); }, "", "text-decoration:line-through"],
+    ["В", "Выделение цветом", function () { wrap("==", "=="); }, "", "background-color:#ffd40080"],
+    ["</>", "Код", function () { wrap("`", "`"); }, "", ""],
+    ["🔗", "Ссылка (Ctrl+K)", addLink, "k", ""],
+    ["x²", "Верхний индекс", function () { wrap("<sup>", "</sup>"); }, "", ""],
+    ["x₂", "Нижний индекс", function () { wrap("<sub>", "</sub>"); }, "", ""],
+    ["•", "Список", function () { prefix("- "); }, "", ""],
+    ["❝", "Цитата", function () { prefix("> "); }, "", ""]
+  ];
+  var toolsEl = el("div", { class: "er-n-row er-n-tools", role: "toolbar", "aria-label": "Разметка заметки" },
+    TOOLS.map(function (t) {
+      var b = button(t[0], t[1], t[2]);
+      if (t[4]) b.setAttribute("style", t[4]);
+      b.addEventListener("mousedown", function (e) { e.preventDefault(); }); // the selection in the field stays
+      return b;
+    }));
+  var previewEl = el("div", { class: "er-n-preview", "aria-label": "Как заметка будет выглядеть", hidden: "" });
   var saveBtn = button("Сохранить (Ctrl+Enter)", "Сохранить заметку в Zotero", save);
   var cancelBtn = button("Отмена", "Не менять заметку", function () { resetForm(); render(); });
   var msgEl = el("div", { class: "er-n-soft er-n-msg", role: "status" });
@@ -113,16 +181,64 @@
   var listEl = el("div");
   var panel = el("div", { id: "er-notes", class: "er-ui", role: "complementary", "aria-label": "Заметки к статье", hidden: "" }, [
     el("div", { class: "er-n-head" }, [titleEl, button("✕", "Закрыть заметки", close)]),
-    statusEl, linksEl, pdfEl, quoteEl, input,
+    statusEl, linksEl, pdfEl, quoteEl, toolsEl, input, previewEl,
     el("div", { class: "er-n-row" }, [saveBtn, cancelBtn]),
     msgEl, extraEl, listHead, listEl
   ]);
 
   function say(text) { msgEl.textContent = text || ""; }
 
+  /* ---------- formatted text ---------- */
+
+  var SHOWN = { P: "p", BR: "br", STRONG: "strong", B: "strong", EM: "em", I: "em", U: "u", S: "s", CODE: "code",
+    SUB: "sub", SUP: "sup", UL: "ul", OL: "ol", LI: "li", H1: "strong", H2: "strong", H3: "strong", BLOCKQUOTE: "blockquote" };
+
+  /* Formatted text of a note as fresh elements. Only the tags of SHOWN, a highlight and http(s) links are
+   * rebuilt; everything else becomes its text. Nothing is inserted as HTML. */
+  function shown(from, into) {
+    from.childNodes.forEach(function (n) {
+      if (n.nodeType === 3) { into.appendChild(doc.createTextNode(n.data)); return; }
+      if (n.nodeType !== 1) return;
+      var tag = SHOWN[n.tagName], e = null;
+      if (tag) e = doc.createElement(tag);
+      else if (n.tagName === "SPAN" && n.style.backgroundColor) e = doc.createElement("mark");
+      else if (n.tagName === "A" && /^https?:/.test(n.getAttribute("href") || "")) e = link("", n.getAttribute("href"));
+      shown(n, e || into);
+      if (e) into.appendChild(e);
+    });
+    return into;
+  }
+
+  /* markdown -> a block of formatted elements; plain text when papers.js is not loaded yet or the page
+   * forbids parsing HTML */
+  function formatted(md, cls) {
+    var box = el("div", { class: cls });
+    try {
+      if (!st.P) throw new Error("papers.js is not loaded yet");
+      return shown(new DOMParser().parseFromString(st.P.mdToHtml(md), "text/html").body, box);
+    } catch (e) {
+      console.debug("easy-read notes: formatted view is not available here", e);
+      box.textContent = md;
+      box.style.whiteSpace = "pre-wrap";
+      return box;
+    }
+  }
+
+  /* under the field: how the text being typed will look */
+  function preview() {
+    var text = input.value.trim();
+    previewEl.hidden = !text;
+    previewEl.textContent = "";
+    if (!text) return;
+    if (!st.P) { shared().then(preview, function (e) { console.debug("easy-read notes: no preview", e); }); return; }
+    previewEl.appendChild(formatted(text, ""));
+  }
+  input.addEventListener("input", preview);
+
   function resetForm() {
     st.editing = null; st.summary = false; st.pending = { quote: "", page: null, full: "" };
     input.value = "";
+    preview();
   }
 
   function render() {
@@ -154,7 +270,9 @@
     var item = el("div", { class: "er-n-item", "data-key": n.key }, []);
     if (n.quote) item.appendChild(el("p", { class: "er-n-quote", text: n.quote.length > 160 ? n.quote.slice(0, 157) + "…" : n.quote }));
     if (!n.readOnly) item.appendChild(button("✎", "Править заметку", function (e) { e.stopPropagation(); startEdit(n); }));
-    item.appendChild(el("p", { text: (n.summary ? "★ Вывод: " : "") + body }));
+    var text = formatted(body, "er-n-body");
+    if (n.summary) text.insertBefore(el("strong", { text: "★ Вывод: " }), text.firstChild);
+    item.appendChild(text);
     if (!found) item.appendChild(el("p", { class: "er-n-soft", text: "цитата не найдена в этом тексте" }));
     item.addEventListener("click", function () { scrollToNote(n.key); });
     return item;
@@ -163,14 +281,14 @@
   function startEdit(n) {
     st.editing = { key: n.key, version: n.version }; st.summary = false;
     input.value = n.md;
-    say(""); render(); input.focus();
+    say(""); render(); preview(); input.focus();
   }
 
   function startSummary() {
     var old = st.notes.find(function (n) { return n.summary; });
     if (old) { startEdit(old); return; }
     st.summary = true; st.editing = null; input.value = "";
-    say(""); render(); input.focus();
+    say(""); render(); preview(); input.focus();
   }
 
   /* one request at a time; the answer of every paper operation carries the fresh state */
@@ -433,6 +551,10 @@
   panel.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); save(); }
     else if (e.key === "Escape") close();
+    else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.target === input) { // text tools; only while typing a note
+      var tool = TOOLS.find(function (t) { return t[3] && t[3] === e.key.toLowerCase(); });
+      if (tool) { e.preventDefault(); tool[2](); }
+    }
     e.stopPropagation(); // typing a note never triggers the reader's Space / the page's shortcuts
   });
 
@@ -462,7 +584,7 @@
     repaint: function () { return paint().then(function () { if (!panel.hidden) render(); }); }, // the viewer changed its view
     mount: function (node) { extraEl.appendChild(node); },
     quote: function () { return selectionQuote().full || st.pending.full || ""; }, // the whole selection, never shortened
-    fill: function (text) { input.value = (input.value ? input.value + "\n\n" : "") + text; input.focus(); },
+    fill: function (text) { input.value = (input.value ? input.value + "\n\n" : "") + text; input.focus(); preview(); },
   };
   if (viewerDoc ? !!viewerDoc().hash : !!doc.querySelector(ARTICLE_META)) refresh();
 })();
