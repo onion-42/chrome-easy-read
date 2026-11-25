@@ -286,10 +286,22 @@ export function withMaterialLine(text, m) {
   return [...lines.slice(0, last), line, "", ...lines.slice(end)].join("\n");
 }
 
-export function inboxLine(item, slug) {
+// "Статья Lin 2023 (Cell)": how every reading task starts, in the inbox and in a plan.
+function taskHead(item) {
   const source = sourceOf(item);
+  return `Статья ${paperLabel(item)}${source ? ` (${source})` : ""}`;
+}
+
+export function inboxLine(item, slug) {
   const link = linkOf(item);
-  return `- [ ] Статья ${paperLabel(item)}${source ? ` (${source})` : ""} · low · [[${slug}]]${link ? `; ${link}` : ""}`;
+  return `- [ ] ${taskHead(item)} · low · [[${slug}]]${link ? `; ${link}` : ""}`;
+}
+
+/** The «Что» cell of a plan row for a new paper. The links come after the first "; " or " · ", so the bar label
+ * and the row id of the plan stay short. */
+export function planTaskText(item, slug, key) {
+  const link = linkOf(item);
+  return `${taskHead(item)}${link ? `; ${link}` : ""} · [[${slug}]] · [Zotero](${zoteroLink(key)})`;
 }
 
 /** Inbox text with the line added at the end of the task list. Unchanged when the slug is already mentioned. */
@@ -304,27 +316,89 @@ export function withInboxLine(text, line, slug) {
   return `${[...lines.slice(0, last + 1), line, ...lines.slice(last + 1)].join("\n")}\n`;
 }
 
-const PAPER_TASK = /^Статья(\s|$)/;
+export const PAPER_TASK = /^Статья(\s|$)/;
+export const READ_TAG = "read"; // Zotero tag of a paper that has been read
 
-/** Text with the open reading task of the paper [[slug]] closed. A reading task starts with "Статья" and links the
- * paper: an inbox line "- [ ] Статья …", or a plan-table row whose «Что» cell starts so and whose «Готово» cell is
- * "[ ]". Lines that only mention the paper stay as they are. Unchanged when there is no such task. */
+/** The reading task of the paper on one line, or null: { open, closed } (closed = the line with its tick set).
+ * A reading task starts with "Статья" and links the paper: an inbox line "- [ ] Статья …", or a plan-table row whose
+ * «Что» cell starts so and which has a «Готово» cell. Lines that only mention the paper are not tasks.
+ * ctx.doneAt carries the «Готово» column of the table being read from line to line. */
+function readingTask(line, link, ctx) {
+  const isRow = line.trimStart().startsWith("|");
+  if (!isRow) {
+    ctx.doneAt = -1;
+    const task = /^(\s*- )\[([ xX])\]( .*)$/.exec(line);
+    if (!task || !line.includes(link) || !PAPER_TASK.test(task[3].trim())) return null;
+    return { open: task[2] === " ", closed: `${task[1]}[x]${task[3]}` };
+  }
+  const cells = line.split("|");
+  const header = cells.findIndex((c) => c.trim().toLowerCase() === "готово");
+  if (header >= 0) ctx.doneAt = header;
+  const mark = cells[ctx.doneAt]?.trim().toLowerCase();
+  if (!line.includes(link) || (mark !== "[ ]" && mark !== "[x]") || !cells.some((c) => PAPER_TASK.test(c.trim()))) return null;
+  return { open: mark === "[ ]", closed: cells.map((c, n) => (n === ctx.doneAt ? " [x] " : c)).join("|") };
+}
+
+/** Text with the open reading tasks of the paper [[slug]] closed. Unchanged when there is no such task. */
 export function closeTasks(text, slug) {
-  const link = `[[${slug}]]`;
-  let doneAt = -1; // index of the «Готово» cell in the table being read
+  const link = `[[${slug}]]`, ctx = { doneAt: -1 };
   return text.split("\n").map((line) => {
-    const isRow = line.trimStart().startsWith("|");
-    if (!isRow) doneAt = -1;
-    if (isRow) {
-      const cells = line.split("|");
-      const header = cells.findIndex((c) => c.trim().toLowerCase() === "готово");
-      if (header >= 0) doneAt = header;
-      if (!line.includes(link) || doneAt < 0 || cells[doneAt]?.trim() !== "[ ]" || !cells.some((c) => PAPER_TASK.test(c.trim()))) return line;
-      return cells.map((c, n) => (n === doneAt ? " [x] " : c)).join("|");
-    }
-    const task = /^(\s*- )\[ \]( .*)$/.exec(line);
-    return task && line.includes(link) && PAPER_TASK.test(task[2].trim()) ? `${task[1]}[x]${task[2]}` : line;
+    const task = readingTask(line, link, ctx);
+    return task?.open ? task.closed : line;
   }).join("\n");
+}
+
+/** "open" | "done" | "none": the reading tasks of [[slug]] in an inbox or a plan. One open task makes it "open". */
+export function taskState(text, slug) {
+  const link = `[[${slug}]]`, ctx = { doneAt: -1 };
+  if (!text.includes(link)) return "none";
+  const tasks = text.split("\n").map((line) => readingTask(line, link, ctx)).filter(Boolean);
+  return tasks.some((t) => t.open) ? "open" : tasks.length ? "done" : "none";
+}
+
+// ---------- reading log of a paper ----------
+// Focus sessions spent on the paper: the section "## Чтение" of the paper note, mirrored in one Zotero child note.
+
+export const READING_LOG_TAG = "reading-log";
+const READING_HEAD = "## Чтение";
+const READING_LINE = /^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) · (\d+) мин/;
+const oneLine = (s) => String(s || "").replace(/\s*\n\s*/g, " ").trim();
+const readingLine = (s) => [`- ${s.start}`, `${s.minutes} мин`, oneLine(s.result), oneLine(s.comment)].filter(Boolean).join(" · ");
+
+// [first line of the section, line after it]; a missing section sits right before "## Заметки". null: no place.
+function readingSpan(lines) {
+  const head = lines.findIndex((l) => l.trim() === READING_HEAD);
+  if (head < 0) {
+    const notes = lines.findIndex((l) => l.trim() === "## Заметки");
+    return notes < 0 ? null : [notes, notes];
+  }
+  const end = lines.findIndex((l, i) => i > head && /^#{1,6} /.test(l));
+  return [head, end < 0 ? lines.length : end];
+}
+
+/** Paper note with the sessions in "## Чтение": one line per session (by start time; a session passed again
+ * replaces its line, so a result written later arrives), then "Всего: N ч". Lines of sessions that are not passed
+ * stay. The section is generated: other text inside it is not kept. */
+export function withReadingLog(text, sessions) {
+  const lines = text.split("\n");
+  const span = readingSpan(lines);
+  if (!sessions.length || !span) return text;
+  const [head, end] = span;
+  const fresh = new Map(sessions.map((s) => [s.start, readingLine(s)]));
+  const kept = lines.slice(head, end).filter((l) => READING_LINE.test(l) && !fresh.has(READING_LINE.exec(l)[1]));
+  const all = [...kept, ...fresh.values()].sort();
+  const minutes = all.reduce((sum, l) => sum + Number(READING_LINE.exec(l)[2]), 0);
+  const section = [READING_HEAD, "", ...all, "", `Всего: ${Math.round(minutes / 6) / 10} ч`, ""];
+  return [...lines.slice(0, head), ...section, ...lines.slice(end)].join("\n");
+}
+
+/** HTML of the Zotero note that mirrors "## Чтение" of a paper note; "" when the note has no such section. */
+export function readingLogHtml(text) {
+  const lines = text.split("\n");
+  const span = readingSpan(lines);
+  if (!span || span[0] === span[1]) return "";
+  const body = lines.slice(span[0] + 1, span[1]).join("\n").trim();
+  return mdToHtml(`# ${READING_HEAD.slice(3)}\n\n${body}`);
 }
 
 // ---------- note body <-> Zotero HTML ----------
