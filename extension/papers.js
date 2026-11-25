@@ -137,23 +137,101 @@ export function uniqueSlug(slug, taken) {
   for (let n = 2; ; n++) if (!taken.has(`${slug}-${n}`)) return `${slug}-${n}`;
 }
 
-export const paperLabel = (item) => [familyOf(item), yearOf(item)].filter(Boolean).join(" ") || "Статья";
+// ---------- words of the files and of the messages ----------
+// Both languages are read everywhere. New text is written in the language of setLang (default ru: the CLI and
+// easy-read); a section added to an existing paper note follows the language that note is written in.
+export const WORDS = {
+  ru: {
+    paper: "Статья", notes: "## Заметки", materials: "## Материалы", reading: "## Чтение", related: "### 🔗 context - Связано с:",
+    firstAuthor: "Первый автор", year: "Год", source: "Источник", address: "Адрес", openInZotero: "открыть в Zotero", key: "ключ",
+    why: "Зачем читаю", page: "Стр.", note: "заметка", summary: "вывод", minutes: "мин", total: "Всего", hours: "ч", done: "готово",
+    conflict: (date) => `Конфликт ${date}: версия из Zotero`,
+    kinds: { pdf: "PDF", note: "заметка", doc: "документ", sheet: "таблица", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" },
+    inboxHead: "# Входящие\n\n## Задачи\n",
+    // sync: what a failed step is called, the errors, the report
+    stepPaper: "статья", stepMaterial: "материал", stepTasks: "задачи в", stepReadingLog: "журнал чтения", stepNote: "заметка", stepFile: "файл",
+    changedMeanwhile: "изменилась в Zotero во время синхронизации, повторится в следующий раз",
+    noCollection: (scope) => `Коллекция Zotero ${scope} не найдена.`,
+    noPaperLine: "нет строки «Статья: [[…]]», заметка не синхронизируется",
+    noPaperNote: "у статьи нет заметки в vault",
+    fileTaken: (name) => `файл ${name} уже есть и не привязан к этой заметке`,
+    paperNotInZotero: (slug) => `статья [[${slug}]] не найдена в Zotero`,
+    report: { papers: "статей", notes: "заметок", created: "новых файлов", pulled: "из Zotero", pushed: "в Zotero", conflicts: "конфликтов",
+      deleted: "удалено в Zotero", closed: "закрыто задач", materials: "материалов", marked: "отмечено прочитанным", reading: "журналов чтения", errors: "ошибок" },
+    // Zotero API
+    noKey: "Добавь ключ Zotero API в настройках расширения.",
+    keyRejected: "Zotero отклонил ключ API. Проверь ключ и его права (library, notes, write) в настройках.",
+    notFound: (path) => `Zotero: запись не найдена (${path}).`,
+    unavailable: (status) => `Zotero сейчас недоступен (HTTP ${status}). Попробуй позже.`,
+    offline: "Нет связи с Zotero. Проверь интернет.",
+    notCreated: (reason) => `Zotero не создал запись: ${reason || "неизвестная причина"}`,
+    noVersion: "Zotero не вернул версию записи после изменения.",
+    noMetadata: (status, url) => `Метаданные не получены (HTTP ${status}): ${url}`,
+  },
+  en: {
+    paper: "Paper", notes: "## Notes", materials: "## Materials", reading: "## Reading", related: "### 🔗 context - Related:",
+    firstAuthor: "First author", year: "Year", source: "Source", address: "Address", openInZotero: "open in Zotero", key: "key",
+    why: "Why I read it", page: "p.", note: "note", summary: "summary", minutes: "min", total: "Total", hours: "h", done: "done",
+    conflict: (date) => `Conflict ${date}: the version from Zotero`,
+    kinds: { pdf: "PDF", note: "note", doc: "document", sheet: "spreadsheet", video: "video", thread: "thread", slides: "slides", link: "link" },
+    inboxHead: "# Inbox\n\n## Tasks\n",
+    stepPaper: "paper", stepMaterial: "material", stepTasks: "tasks in", stepReadingLog: "reading log", stepNote: "note", stepFile: "file",
+    changedMeanwhile: "changed in Zotero during the sync, it will be repeated next time",
+    noCollection: (scope) => `Zotero collection ${scope} was not found.`,
+    noPaperLine: "the line «Paper: [[…]]» is missing, the note is not synced",
+    noPaperNote: "the paper has no note in the vault",
+    fileTaken: (name) => `the file ${name} already exists and is not linked to this note`,
+    paperNotInZotero: (slug) => `the paper [[${slug}]] was not found in Zotero`,
+    report: { papers: "papers", notes: "notes", created: "new files", pulled: "from Zotero", pushed: "to Zotero", conflicts: "conflicts",
+      deleted: "deleted in Zotero", closed: "tasks closed", materials: "materials", marked: "marked as read", reading: "reading logs", errors: "errors" },
+    noKey: "Add your Zotero API key in the extension options.",
+    keyRejected: "Zotero rejected the API key. Check the key and its permissions (library, notes, write) in the options.",
+    notFound: (path) => `Zotero: the item was not found (${path}).`,
+    unavailable: (status) => `Zotero is unavailable right now (HTTP ${status}). Try again later.`,
+    offline: "No connection to Zotero. Check the internet connection.",
+    notCreated: (reason) => `Zotero did not create the item: ${reason || "unknown reason"}`,
+    noVersion: "Zotero did not return the item version after the change.",
+    noMetadata: (status, url) => `The metadata was not received (HTTP ${status}): ${url}`,
+  },
+};
+const LANGS = Object.keys(WORDS);
+let lang = "ru";
+
+export function setLang(next) {
+  if (!WORDS[next]) throw new Error(`Unknown language: ${next}`);
+  lang = next;
+}
+/** The words of the current language. */
+export const words = () => WORDS[lang];
+
+const either = (name) => LANGS.map((l) => WORDS[l][name].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+// The first heading `name` (in either language): its line index and the language it is written in.
+function headAt(lines, name) {
+  for (const [at, line] of lines.entries()) {
+    const found = LANGS.find((l) => line.trim() === WORDS[l][name]);
+    if (found) return { at, lang: found };
+  }
+  return { at: -1, lang: null };
+}
+
+export const paperLabel = (item) => [familyOf(item), yearOf(item)].filter(Boolean).join(" ") || words().paper;
 const sourceOf = (item) => item.publicationTitle || item.repository || item.websiteTitle || "";
 export const zoteroLink = (key) => `zotero://select/library/items/${key}`;
 const linkOf = (item) => (item.DOI ? `https://doi.org/${item.DOI}` : item.url || "");
 
 export function paperNote(item, { key, slug, why = "", tags = "#papers" }) {
+  const w = words();
   const head = [
-    `- **Первый автор:** ${familyOf(item) || "—"} · **Год:** ${yearOf(item) || "—"} · **Источник:** ${sourceOf(item) || "—"}`,
-    item.DOI ? `- **DOI:** https://doi.org/${item.DOI}` : `- **Адрес:** ${item.url || "—"}`,
+    `- **${w.firstAuthor}:** ${familyOf(item) || "—"} · **${w.year}:** ${yearOf(item) || "—"} · **${w.source}:** ${sourceOf(item) || "—"}`,
+    item.DOI ? `- **DOI:** https://doi.org/${item.DOI}` : `- **${w.address}:** ${item.url || "—"}`,
   ];
   const pmid = extraGet(item.extra, "PMID");
   if (pmid) head.push(`- **PMID:** ${pmid}`);
-  head.push(`- **Zotero:** [открыть в Zotero](${zoteroLink(key)}) · ключ \`${key}\``);
+  head.push(`- **Zotero:** [${w.openInZotero}](${zoteroLink(key)}) · ${w.key} \`${key}\``);
   const pdf = extraGet(item.extra, "pdf");
   if (pdf) head.push(pdfLine(pdf));
-  head.push(`- **Зачем читаю:** ${why}`);
-  return `# ${paperLabel(item)} — ${item.title || slug}\n\n${head.join("\n")}\n\n## Заметки\n\n\n### 🔗 context - Связано с:\n\n${tags}\n`;
+  head.push(`- **${w.why}:** ${why}`);
+  return `# ${paperLabel(item)} — ${item.title || slug}\n\n${head.join("\n")}\n\n${w.notes}\n\n\n${w.related}\n\n${tags}\n`;
 }
 
 export const PAPER_KEY_RE = /zotero:\/\/select\/library\/items\/([A-Z0-9]{8})/;
@@ -168,11 +246,11 @@ export function withPdfLine(text, pdfPath) {
   return [...lines.slice(0, at + 1), pdfLine(pdfPath), ...lines.slice(at + 1)].join("\n");
 }
 
-/** Paper note with "- [[noteName]]" appended to the "## Заметки" section. Append-only. */
+/** Paper note with "- [[noteName]]" appended to the notes section. Append-only. */
 export function withNoteLink(text, noteName) {
   if (text.includes(`[[${noteName}]]`)) return text;
   const lines = text.split("\n");
-  const head = lines.findIndex((l) => l.trim() === "## Заметки");
+  const head = headAt(lines, "notes").at;
   if (head < 0) return text;
   let end = lines.findIndex((l, i) => i > head && /^#{1,6} /.test(l));
   if (end < 0) end = lines.length;
@@ -187,7 +265,7 @@ export function withNoteLink(text, noteName) {
 
 export const MATERIAL_TAG = "paper-material";
 export const MATERIALS_DIR = "1_education/papers/materials";
-export const MATERIAL_KINDS = { pdf: "PDF", note: "заметка", doc: "документ", sheet: "таблица", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" };
+export const MATERIAL_KINDS = WORDS.ru.kinds; // the Russian names: easy-read and the CLI show them
 // kinds that can be a file kept in the vault, by file extension
 const FILE_KINDS = [["pdf", /\.pdf$/i], ["note", /\.md$/i], ["doc", /\.docx?$/i], ["sheet", /\.xlsx?$/i]];
 const fileKind = (name) => FILE_KINDS.find(([, ext]) => ext.test(name))?.[0] || "";
@@ -264,20 +342,21 @@ export function materialView(it) {
 export const materialHref = (m, viewerUrl) =>
   m.kind === "pdf" && m.path.startsWith("0_media/papers/") ? `${viewerUrl}?vault=${encodeURIComponent(m.path)}` : m.url;
 
-/** Paper note with one material line in "## Материалы" (the section is created before "## Заметки").
+/** Paper note with one material line in the materials section (the section is created before the notes section).
  * Append-only: unchanged when the material's Zotero key is already mentioned. */
 export function withMaterialLine(text, m) {
   const mark = `%%m:${m.key}%%`;
   if (text.includes(mark)) return text;
   const link = m.path ? `[[${m.path.split("/").at(-1).replace(/\.md$/, "")}]]` : `[${m.title.replace(/[[\]]/g, "")}](${m.url})`;
-  const line = `- ${MATERIAL_KINDS[m.kind] || m.kind}: ${link}${m.path ? ` — ${m.title}` : ""} ${mark}`;
   const lines = text.split("\n");
-  let head = lines.findIndex((l) => l.trim() === "## Материалы");
+  const section = headAt(lines, "materials"), notes = headAt(lines, "notes");
+  const w = WORDS[section.lang ?? notes.lang];
+  if (!w) return text;
+  const line = `- ${w.kinds[m.kind] || m.kind}: ${link}${m.path ? ` — ${m.title}` : ""} ${mark}`;
+  let head = section.at;
   if (head < 0) {
-    const notes = lines.findIndex((l) => l.trim() === "## Заметки");
-    if (notes < 0) return text;
-    lines.splice(notes, 0, "## Материалы", "");
-    head = notes;
+    lines.splice(notes.at, 0, w.materials, "");
+    head = notes.at;
   }
   let end = lines.findIndex((l, i) => i > head && /^#{1,6} /.test(l));
   if (end < 0) end = lines.length;
@@ -286,10 +365,10 @@ export function withMaterialLine(text, m) {
   return [...lines.slice(0, last), line, "", ...lines.slice(end)].join("\n");
 }
 
-// "Статья Lin 2023 (Cell)": how every reading task starts, in the inbox and in a plan.
+// "Статья Lin 2023 (Cell)" / "Paper Lin 2023 (Cell)": how every reading task starts, in the inbox and in a plan.
 function taskHead(item) {
   const source = sourceOf(item);
-  return `Статья ${paperLabel(item)}${source ? ` (${source})` : ""}`;
+  return `${words().paper} ${paperLabel(item)}${source ? ` (${source})` : ""}`;
 }
 
 export function inboxLine(item, slug) {
@@ -297,7 +376,7 @@ export function inboxLine(item, slug) {
   return `- [ ] ${taskHead(item)} · low · [[${slug}]]${link ? `; ${link}` : ""}`;
 }
 
-/** The «Что» cell of a plan row for a new paper. The links come after the first "; " or " · ", so the bar label
+/** The task cell of a plan row for a new paper. The links come after the first "; " or " · ", so the bar label
  * and the row id of the plan stay short. */
 export function planTaskText(item, slug, key) {
   const link = linkOf(item);
@@ -316,13 +395,14 @@ export function withInboxLine(text, line, slug) {
   return `${[...lines.slice(0, last + 1), line, ...lines.slice(last + 1)].join("\n")}\n`;
 }
 
-export const PAPER_TASK = /^Статья(\s|$)/;
+export const PAPER_TASK = new RegExp(`^(${either("paper")})(\\s|$)`);
+const DONE_HEADERS = LANGS.map((l) => WORDS[l].done);
 export const READ_TAG = "read"; // Zotero tag of a paper that has been read
 
 /** The reading task of the paper on one line, or null: { open, closed } (closed = the line with its tick set).
- * A reading task starts with "Статья" and links the paper: an inbox line "- [ ] Статья …", or a plan-table row whose
- * «Что» cell starts so and which has a «Готово» cell. Lines that only mention the paper are not tasks.
- * ctx.doneAt carries the «Готово» column of the table being read from line to line. */
+ * A reading task starts with "Статья" or "Paper" and links the paper: an inbox line "- [ ] Статья …", or a
+ * plan-table row whose task cell starts so and which has a done cell. Lines that only mention the paper are not
+ * tasks. ctx.doneAt carries the done column of the table being read from line to line. */
 function readingTask(line, link, ctx) {
   const isRow = line.trimStart().startsWith("|");
   if (!isRow) {
@@ -332,7 +412,7 @@ function readingTask(line, link, ctx) {
     return { open: task[2] === " ", closed: `${task[1]}[x]${task[3]}` };
   }
   const cells = line.split("|");
-  const header = cells.findIndex((c) => c.trim().toLowerCase() === "готово");
+  const header = cells.findIndex((c) => DONE_HEADERS.includes(c.trim().toLowerCase()));
   if (header >= 0) ctx.doneAt = header;
   const mark = cells[ctx.doneAt]?.trim().toLowerCase();
   if (!line.includes(link) || (mark !== "[ ]" && mark !== "[x]") || !cells.some((c) => PAPER_TASK.test(c.trim()))) return null;
@@ -357,48 +437,49 @@ export function taskState(text, slug) {
 }
 
 // ---------- reading log of a paper ----------
-// Focus sessions spent on the paper: the section "## Чтение" of the paper note, mirrored in one Zotero child note.
+// Focus sessions spent on the paper: the reading section ("## Чтение" / "## Reading") of the paper note, mirrored
+// in one Zotero child note.
 
 export const READING_LOG_TAG = "reading-log";
-const READING_HEAD = "## Чтение";
-const READING_LINE = /^- (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) · (\d+) мин/;
+const READING_LINE = new RegExp(`^- (\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}) · (\\d+) (?:${either("minutes")})`);
 const oneLine = (s) => String(s || "").replace(/\s*\n\s*/g, " ").trim();
-const readingLine = (s) => [`- ${s.start}`, `${s.minutes} мин`, oneLine(s.result), oneLine(s.comment)].filter(Boolean).join(" · ");
+const readingLine = (s, w) => [`- ${s.start}`, `${s.minutes} ${w.minutes}`, oneLine(s.result), oneLine(s.comment)].filter(Boolean).join(" · ");
 
-// [first line of the section, line after it]; a missing section sits right before "## Заметки". null: no place.
+// [first line of the section, line after it, language of the note]; a missing section sits right before the notes
+// section. null: no place.
 function readingSpan(lines) {
-  const head = lines.findIndex((l) => l.trim() === READING_HEAD);
-  if (head < 0) {
-    const notes = lines.findIndex((l) => l.trim() === "## Заметки");
-    return notes < 0 ? null : [notes, notes];
+  const head = headAt(lines, "reading");
+  if (head.at < 0) {
+    const notes = headAt(lines, "notes");
+    return notes.at < 0 ? null : [notes.at, notes.at, notes.lang];
   }
-  const end = lines.findIndex((l, i) => i > head && /^#{1,6} /.test(l));
-  return [head, end < 0 ? lines.length : end];
+  const end = lines.findIndex((l, i) => i > head.at && /^#{1,6} /.test(l));
+  return [head.at, end < 0 ? lines.length : end, head.lang];
 }
 
-/** Paper note with the sessions in "## Чтение": one line per session (by start time; a session passed again
+/** Paper note with the sessions in the reading section: one line per session (by start time; a session passed again
  * replaces its line, so a result written later arrives), then "Всего: N ч". Lines of sessions that are not passed
  * stay. The section is generated: other text inside it is not kept. */
 export function withReadingLog(text, sessions) {
   const lines = text.split("\n");
   const span = readingSpan(lines);
   if (!sessions.length || !span) return text;
-  const [head, end] = span;
-  const fresh = new Map(sessions.map((s) => [s.start, readingLine(s)]));
+  const [head, end] = span, w = WORDS[span[2]];
+  const fresh = new Map(sessions.map((s) => [s.start, readingLine(s, w)]));
   const kept = lines.slice(head, end).filter((l) => READING_LINE.test(l) && !fresh.has(READING_LINE.exec(l)[1]));
   const all = [...kept, ...fresh.values()].sort();
   const minutes = all.reduce((sum, l) => sum + Number(READING_LINE.exec(l)[2]), 0);
-  const section = [READING_HEAD, "", ...all, "", `Всего: ${Math.round(minutes / 6) / 10} ч`, ""];
+  const section = [w.reading, "", ...all, "", `${w.total}: ${Math.round(minutes / 6) / 10} ${w.hours}`, ""];
   return [...lines.slice(0, head), ...section, ...lines.slice(end)].join("\n");
 }
 
-/** HTML of the Zotero note that mirrors "## Чтение" of a paper note; "" when the note has no such section. */
+/** HTML of the Zotero note that mirrors the reading section of a paper note; "" when the note has no such section. */
 export function readingLogHtml(text) {
   const lines = text.split("\n");
   const span = readingSpan(lines);
   if (!span || span[0] === span[1]) return "";
   const body = lines.slice(span[0] + 1, span[1]).join("\n").trim();
-  return mdToHtml(`# ${READING_HEAD.slice(3)}\n\n${body}`);
+  return mdToHtml(`# ${WORDS[span[2]].reading.slice(3)}\n\n${body}`);
 }
 
 // ---------- note body <-> Zotero HTML ----------
@@ -525,7 +606,8 @@ export const RICH_HTML = /<(img|table)\b|data-annotation=|data-citation=/i;
 // ---------- note file ----------
 
 export const MARKER_RE = /^%% zotero-note: (\w{8}|deleted) · v(\d+) · h:([0-9a-f]{8})( · ro)? %%$/m;
-const PAPER_LINE_RE = /^Статья: \[\[([^\]|#]+)\]\][ \t]*$/m;
+const PAPER_LINE_RE = new RegExp(`^(?:${either("paper")}): \\[\\[([^\\]|#]+)\\]\\][ \\t]*$`, "m");
+const PAGE_LINE_RE = new RegExp(`^(?:${either("page")}) `);
 const TAG_LINE_RE = /^#[\p{L}\d][^\n]*$/u;
 export const SUMMARY_TAG = "summary";
 const NOTE_TAGS = "#papers #paper-note";
@@ -559,16 +641,16 @@ export function parseNoteFile(text) {
 
 export function renderNoteFile({ title, paperSlug, body, key, version, readOnly = false, summary = false }) {
   const marker = `%% zotero-note: ${key} · v${version} · h:${fnv1a(body.trim())}${readOnly ? " · ro" : ""} %%`;
-  return `# ${title}\n\nСтатья: [[${paperSlug}]]\n\n${body.trim()}\n\n${marker}\n${NOTE_TAGS}${summary ? " #paper-summary" : ""}\n`;
+  return `# ${title}\n\n${words().paper}: [[${paperSlug}]]\n\n${body.trim()}\n\n${marker}\n${NOTE_TAGS}${summary ? " #paper-summary" : ""}\n`;
 }
 
 /** "Lin 2023 — <first words of my comment, else of the quote>". */
 export function noteTitle(label, body, summary = false) {
   const lines = body.split("\n").map((l) => l.trim()).filter(Boolean);
-  const own = lines.find((l) => !l.startsWith(">") && !/^https?:\/\//.test(l) && !/^Стр\. /.test(l));
-  const text = (own || lines[0] || "заметка").replace(/^>\s*/, "").replace(/[*`#[\]|]/g, "").trim();
+  const own = lines.find((l) => !l.startsWith(">") && !/^https?:\/\//.test(l) && !PAGE_LINE_RE.test(l));
+  const text = (own || lines[0] || words().note).replace(/^>\s*/, "").replace(/[*`#[\]|]/g, "").trim();
   const short = text.length > 60 ? `${text.slice(0, 57).trimEnd()}…` : text;
-  return `${label} — ${summary ? "вывод: " : ""}${short}`;
+  return `${label} — ${summary ? `${words().summary}: ` : ""}${short}`;
 }
 
 export const noteFileName = (paperSlug, key) => `${paperSlug}--${key}.md`;
@@ -578,7 +660,7 @@ export function noteBody({ quote = "", comment = "", page = null, url = "" }) {
   const parts = [];
   if (quote.trim()) parts.push(quote.trim().split(/\n+/).map((l) => `> ${l.trim()}`).join("\n"));
   if (comment.trim()) parts.push(comment.trim());
-  const source = [page ? `Стр. ${page}` : "", url].filter(Boolean).join(" · ");
+  const source = [page ? `${words().page} ${page}` : "", url].filter(Boolean).join(" · ");
   if (source && quote.trim()) parts.push(source);
   return parts.join("\n\n");
 }
@@ -614,7 +696,7 @@ export function decide({ local, remote }) {
 }
 
 export function mergeConflict(localBody, remoteMd, date) {
-  return `${localBody.trimEnd()}\n\n---\n\n**Конфликт ${date}: версия из Zotero**\n\n${remoteMd.trim()}\n`;
+  return `${localBody.trimEnd()}\n\n---\n\n**${words().conflict(date)}**\n\n${remoteMd.trim()}\n`;
 }
 
 // ---------- quote location (highlighting) ----------

@@ -1,21 +1,21 @@
 // Zotero Web API v3 client + public metadata lookups. Pure: no chrome.*, no fs; fetch is injectable for tests.
 // One source of truth (skill zotero-link); both extensions ship byte-identical copies.
-import { crossrefToItem, zenodoToItem } from "./papers.js";
+import { WORDS, crossrefToItem, words, zenodoToItem } from "./papers.js";
 
 export const API = "https://api.zotero.org";
-export const NO_KEY = "Добавь ключ Zotero API в настройках расширения.";
+export const NO_KEY = WORDS.ru.noKey; // the Russian text: easy-read and watch-list show it
 const RETRY_STATUS = new Set([429, 503]);
 const PAGE = 100;
 
 function failure(method, path, status) {
-  if (status === 403) return "Zotero отклонил ключ API. Проверь ключ и его права (library, notes, write) в настройках.";
-  if (status === 404) return `Zotero: запись не найдена (${path.split("?")[0]}).`;
-  if (status >= 500) return `Zotero сейчас недоступен (HTTP ${status}). Попробуй позже.`;
+  if (status === 403) return words().keyRejected;
+  if (status === 404) return words().notFound(path.split("?")[0]);
+  if (status >= 500) return words().unavailable(status);
   return `Zotero ${method} ${path.split("?")[0]}: HTTP ${status}`;
 }
 
 export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
-  if (!apiKey) throw new Error(NO_KEY);
+  if (!apiKey) throw new Error(words().noKey);
 
   async function call(method, path, { body, ifVersion } = {}) {
     const headers = { "Zotero-API-Key": apiKey, "Zotero-API-Version": "3" };
@@ -26,7 +26,7 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
       try {
         res = await fetchFn(API + path, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
       } catch (e) {
-        throw new Error("Нет связи с Zotero. Проверь интернет.", { cause: e });
+        throw new Error(words().offline, { cause: e });
       }
       if (RETRY_STATUS.has(res.status) && attempt < 2) {
         await sleep(1000 * (Number(res.headers.get("Retry-After")) || attempt + 1));
@@ -58,7 +58,7 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
   async function create(item) {
     const { data } = await call("POST", `${u()}/items`, { body: [item] });
     const made = data.successful?.["0"];
-    if (!made) throw new Error(`Zotero не создал запись: ${data.failed?.["0"]?.message || "неизвестная причина"}`);
+    if (!made) throw new Error(words().notCreated(data.failed?.["0"]?.message));
     return { key: made.key, version: made.version };
   }
 
@@ -85,7 +85,7 @@ export function client({ apiKey, userId, fetchFn = fetch, sleep = (ms) => new Pr
     patch: async (key, fields, ifVersion) => {
       const res = await call("PATCH", `${u()}/items/${key}`, { body: fields, ifVersion });
       // the marker of a note file needs the new version; without it the next sync would see a fresh file
-      if (!res.conflict && !res.version) throw new Error("Zotero не вернул версию записи после изменения.");
+      if (!res.conflict && !res.version) throw new Error(words().noVersion);
       return res;
     },
   };
@@ -108,7 +108,7 @@ export function collectionTree(collections, rootKey) {
 
 async function publicJson(url, fetchFn) {
   const res = await fetchFn(url);
-  if (!res.ok) throw new Error(`Метаданные не получены (HTTP ${res.status}): ${url}`);
+  if (!res.ok) throw new Error(words().noMetadata(res.status, url));
   return res.json();
 }
 
