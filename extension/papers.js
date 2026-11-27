@@ -146,10 +146,15 @@ export const WORDS = {
     firstAuthor: "Первый автор", year: "Год", source: "Источник", address: "Адрес", openInZotero: "открыть в Zotero", key: "ключ",
     why: "Зачем читаю", page: "Стр.", note: "заметка", summary: "вывод", minutes: "мин", total: "Всего", hours: "ч", done: "готово",
     conflict: (date) => `Конфликт ${date}: версия из Zotero`,
-    kinds: { pdf: "PDF", note: "заметка", doc: "документ", sheet: "таблица", video: "видео", thread: "тред", slides: "слайды", link: "ссылка" },
+    kinds: { pdf: "PDF", note: "заметка", doc: "документ", sheet: "таблица", video: "видео", thread: "тред", slides: "слайды", link: "ссылка", file: "файл" },
+    highlights: "выделения", drawing: "(область или рисунок)", noHighlights: "Выделений пока нет.",
+    readOnlyCopy: "Копия выделений из PDF в Zotero, только для чтения. Правь выделения в Zotero: текст этого файла заменяется при синхронизации.",
     inboxHead: "# Входящие\n\n## Задачи\n",
     // sync: what a failed step is called, the errors, the report
     stepPaper: "статья", stepMaterial: "материал", stepTasks: "задачи в", stepReadingLog: "журнал чтения", stepNote: "заметка", stepFile: "файл",
+    stepHighlights: "выделения",
+    groupMissing: (ids, slugs) => `Заметки-паспорта в vault ссылаются на группу Zotero ${ids}, но эта группа не подключена: в ней нет коллекции верхнего уровня с именем списка чтения (переименована или удалена?), или у ключа нет доступа к группе. Синхронизация остановлена, ничего не изменено. Верни коллекцию в группе. Если группа больше не нужна, поправь ссылку Zotero в этих паспортах: ${slugs}.`,
+    twinKeys: (keys) => `Одна запись есть в двух библиотеках Zotero (${keys}). Заверши перенос командой share или удали копию. Синхронизация остановлена, ничего не изменено.`,
     changedMeanwhile: "изменилась в Zotero во время синхронизации, повторится в следующий раз",
     noCollection: (scope) => `Коллекция Zotero ${scope} не найдена.`,
     noPaperLine: "нет строки «Статья: [[…]]», заметка не синхронизируется",
@@ -157,7 +162,8 @@ export const WORDS = {
     fileTaken: (name) => `файл ${name} уже есть и не привязан к этой заметке`,
     paperNotInZotero: (slug) => `статья [[${slug}]] не найдена в Zotero`,
     report: { papers: "статей", notes: "заметок", created: "новых файлов", pulled: "из Zotero", pushed: "в Zotero", conflicts: "конфликтов",
-      deleted: "удалено в Zotero", closed: "закрыто задач", materials: "материалов", marked: "отмечено прочитанным", reading: "журналов чтения", errors: "ошибок" },
+      deleted: "удалено в Zotero", closed: "закрыто задач", materials: "материалов", highlights: "файлов выделений", marked: "отмечено прочитанным",
+      reading: "журналов чтения", errors: "ошибок" },
     // Zotero API
     noKey: "Добавь ключ Zotero API в настройках расширения.",
     keyRejected: "Zotero отклонил ключ API. Проверь ключ и его права (library, notes, write) в настройках.",
@@ -167,15 +173,23 @@ export const WORDS = {
     notCreated: (reason) => `Zotero не создал запись: ${reason || "неизвестная причина"}`,
     noVersion: "Zotero не вернул версию записи после изменения.",
     noMetadata: (status, url) => `Метаданные не получены (HTTP ${status}): ${url}`,
+    quota: "В хранилище Zotero не хватает места для этого файла (квота владельца библиотеки).",
+    fileChanged: "Файл в Zotero изменился с прошлого чтения. Повтори ещё раз.",
+    uploadFailed: (status) => `Файл не загружен в хранилище Zotero (HTTP ${status}).`,
   },
   en: {
     paper: "Paper", notes: "## Notes", materials: "## Materials", reading: "## Reading", related: "### 🔗 context - Related:",
     firstAuthor: "First author", year: "Year", source: "Source", address: "Address", openInZotero: "open in Zotero", key: "key",
     why: "Why I read it", page: "p.", note: "note", summary: "summary", minutes: "min", total: "Total", hours: "h", done: "done",
     conflict: (date) => `Conflict ${date}: the version from Zotero`,
-    kinds: { pdf: "PDF", note: "note", doc: "document", sheet: "spreadsheet", video: "video", thread: "thread", slides: "slides", link: "link" },
+    kinds: { pdf: "PDF", note: "note", doc: "document", sheet: "spreadsheet", video: "video", thread: "thread", slides: "slides", link: "link", file: "file" },
+    highlights: "highlights", drawing: "(area or drawing)", noHighlights: "No highlights yet.",
+    readOnlyCopy: "A read-only copy of the PDF highlights in Zotero. Edit the highlights in Zotero: the text of this file is replaced by the sync.",
     inboxHead: "# Inbox\n\n## Tasks\n",
     stepPaper: "paper", stepMaterial: "material", stepTasks: "tasks in", stepReadingLog: "reading log", stepNote: "note", stepFile: "file",
+    stepHighlights: "highlights",
+    groupMissing: (ids, slugs) => `Paper notes of the vault point at the Zotero group ${ids}, but this group is not connected: it has no top-level collection named like the reading list (renamed or deleted?), or the key has no access to it. The sync has stopped, nothing was changed. Restore the collection in the group. If the group is no longer used, fix the Zotero link in these paper notes: ${slugs}.`,
+    twinKeys: (keys) => `One item is in two Zotero libraries (${keys}). Finish the move with the share command or delete the copy. The sync has stopped, nothing was changed.`,
     changedMeanwhile: "changed in Zotero during the sync, it will be repeated next time",
     noCollection: (scope) => `Zotero collection ${scope} was not found.`,
     noPaperLine: "the line «Paper: [[…]]» is missing, the note is not synced",
@@ -183,7 +197,8 @@ export const WORDS = {
     fileTaken: (name) => `the file ${name} already exists and is not linked to this note`,
     paperNotInZotero: (slug) => `the paper [[${slug}]] was not found in Zotero`,
     report: { papers: "papers", notes: "notes", created: "new files", pulled: "from Zotero", pushed: "to Zotero", conflicts: "conflicts",
-      deleted: "deleted in Zotero", closed: "tasks closed", materials: "materials", marked: "marked as read", reading: "reading logs", errors: "errors" },
+      deleted: "deleted in Zotero", closed: "tasks closed", materials: "materials", highlights: "highlights files", marked: "marked as read",
+      reading: "reading logs", errors: "errors" },
     noKey: "Add your Zotero API key in the extension options.",
     keyRejected: "Zotero rejected the API key. Check the key and its permissions (library, notes, write) in the options.",
     notFound: (path) => `Zotero: the item was not found (${path}).`,
@@ -192,6 +207,9 @@ export const WORDS = {
     notCreated: (reason) => `Zotero did not create the item: ${reason || "unknown reason"}`,
     noVersion: "Zotero did not return the item version after the change.",
     noMetadata: (status, url) => `The metadata was not received (HTTP ${status}): ${url}`,
+    quota: "Zotero storage has no room for this file (the quota of the library owner).",
+    fileChanged: "The file in Zotero has changed since it was read. Try again.",
+    uploadFailed: (status) => `The file was not uploaded to Zotero storage (HTTP ${status}).`,
   },
 };
 const LANGS = Object.keys(WORDS);
@@ -203,6 +221,8 @@ export function setLang(next) {
 }
 /** The words of the current language. */
 export const words = () => WORDS[lang];
+/** The words of the language a note file is written in (by its paper line); the current language for a new file. */
+export const wordsOfFile = (text) => WORDS[LANGS.find((l) => new RegExp(`^${WORDS[l].paper}: \\[\\[`, "m").test(text || ""))] || words();
 
 const either = (name) => LANGS.map((l) => WORDS[l][name].replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
 // The first heading `name` (in either language): its line index and the language it is written in.
@@ -216,10 +236,14 @@ function headAt(lines, name) {
 
 export const paperLabel = (item) => [familyOf(item), yearOf(item)].filter(Boolean).join(" ") || words().paper;
 const sourceOf = (item) => item.publicationTitle || item.repository || item.websiteTitle || "";
-export const zoteroLink = (key) => `zotero://select/library/items/${key}`;
+// lib: { type: "user" | "group", id } of the library the item lives in; nothing = the personal library
+const libPath = (lib) => (lib?.type === "group" ? `groups/${lib.id}` : "library");
+export const zoteroLink = (key, lib) => `zotero://select/${libPath(lib)}/items/${key}`;
+/** Opens a PDF attachment in Zotero's reader. */
+export const pdfLink = (attKey, lib) => `zotero://open-pdf/${libPath(lib)}/items/${attKey}`;
 const linkOf = (item) => (item.DOI ? `https://doi.org/${item.DOI}` : item.url || "");
 
-export function paperNote(item, { key, slug, why = "", tags = "#papers" }) {
+export function paperNote(item, { key, slug, why = "", tags = "#papers", lib = null }) {
   const w = words();
   const head = [
     `- **${w.firstAuthor}:** ${familyOf(item) || "—"} · **${w.year}:** ${yearOf(item) || "—"} · **${w.source}:** ${sourceOf(item) || "—"}`,
@@ -227,23 +251,31 @@ export function paperNote(item, { key, slug, why = "", tags = "#papers" }) {
   ];
   const pmid = extraGet(item.extra, "PMID");
   if (pmid) head.push(`- **PMID:** ${pmid}`);
-  head.push(`- **Zotero:** [${w.openInZotero}](${zoteroLink(key)}) · ${w.key} \`${key}\``);
-  const pdf = extraGet(item.extra, "pdf");
-  if (pdf) head.push(pdfLine(pdf));
+  head.push(`- **Zotero:** [${w.openInZotero}](${zoteroLink(key, lib)}) · ${w.key} \`${key}\``);
   head.push(`- **${w.why}:** ${why}`);
   return `# ${paperLabel(item)} — ${item.title || slug}\n\n${head.join("\n")}\n\n${w.notes}\n\n\n${w.related}\n\n${tags}\n`;
 }
 
-export const PAPER_KEY_RE = /zotero:\/\/select\/library\/items\/([A-Z0-9]{8})/;
-const pdfLine = (path) => `- **PDF:** [[${path.split("/").at(-1)}]]`;
+export const PAPER_KEY_RE = /zotero:\/\/select\/(?:library|groups\/\d+)\/items\/([A-Z0-9]{8})/;
 
-/** Paper note with the PDF line (after the Zotero line). Unchanged text when it is already there. */
-export function withPdfLine(text, pdfPath) {
-  if (/^- \*\*PDF:\*\*/m.test(text)) return text;
+/** Paper note whose Zotero line points at the library the paper is in now. The words of the line stay. */
+export function withZoteroLine(text, key, lib) {
+  return text.split("\n").map((l) => (l.startsWith("- **Zotero:**") ? l.replace(PAPER_KEY_RE, zoteroLink(key, lib)) : l)).join("\n");
+}
+
+/** Paper note with the PDF line (after the Zotero line): a link that opens the PDF in Zotero. A line that points
+ * somewhere else is replaced; the words follow the language the note is written in. */
+export function withPdfLine(text, link) {
   const lines = text.split("\n");
+  const line = `- **PDF:** [${(WORDS[headAt(lines, "notes").lang] || words()).openInZotero}](${link})`;
+  const has = lines.findIndex((l) => l.startsWith("- **PDF:**"));
+  if (has >= 0) {
+    if (lines[has].includes(`(${link})`)) return text;
+    return lines.with(has, line).join("\n");
+  }
   const at = lines.findIndex((l) => l.startsWith("- **Zotero:**"));
   if (at < 0) return text;
-  return [...lines.slice(0, at + 1), pdfLine(pdfPath), ...lines.slice(at + 1)].join("\n");
+  return lines.toSpliced(at + 1, 0, line).join("\n");
 }
 
 /** Paper note with "- [[noteName]]" appended to the notes section. Append-only. */
@@ -260,8 +292,10 @@ export function withNoteLink(text, noteName) {
 }
 
 // ---------- materials of a paper ----------
-// A material = a Zotero child of the paper: attachment, linked_url, tags paper-material + material-<kind>.
-// A file of the vault is linked by an obsidian:// address (Zotero keeps it: checked on the live API).
+// A material = any attachment under the paper except the paper's own PDF: a file stored in Zotero, or a link.
+// The tags paper-material + material-<kind> are written by our tools; an attachment added by hand in Zotero has
+// none and is still a material. A note of the vault (.md) stays in the vault and is linked by an obsidian://
+// address (Zotero keeps it: checked on the live API).
 
 export const MATERIAL_TAG = "paper-material";
 export const MATERIALS_DIR = "1_education/papers/materials";
@@ -305,8 +339,38 @@ export function materialFileName(paperSlug, fileName) {
 const obsidianUrl = (vaultName, path) =>
   `obsidian://open?${vaultName ? `vault=${encodeURIComponent(vaultName)}&` : ""}file=${encodeURIComponent(path)}`;
 
-/** The Zotero child item of a material. target = an address, or a path inside the vault. */
-export function materialItem({ parent, title = "", target, vaultName = "" }) {
+const CONTENT_TYPES = {
+  pdf: "application/pdf", md: "text/markdown", doc: "application/msword", xls: "application/vnd.ms-excel",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+const hasTag = (it, tag) => (it.data.tags || []).some((t) => t.tag === tag);
+const isStored = (d) => (d.linkMode || "").startsWith("imported_");
+
+/** The paper's own PDF among its children: a PDF stored in Zotero that is not a material; the oldest one. */
+/** The Zotero group a paper note points at (the id in its zotero://select/groups/<id>/… link), or null. */
+export const paperGroup = (text) => /zotero:\/\/select\/groups\/(\d+)\/items\/[A-Z0-9]{8}/.exec(text || "")?.[1] || null;
+
+export const mainPdf = (kids) => kids
+  .filter((k) => k.data.itemType === "attachment" && !k.data.deleted && isStored(k.data) && k.data.contentType === "application/pdf"
+    && !hasTag(k, MATERIAL_TAG))
+  .sort((a, b) => (a.data.dateAdded || "").localeCompare(b.data.dateAdded || ""))[0] || null;
+
+/** The Zotero child item of a material. target = an address, or a path inside the vault (a link to it is kept).
+ * file = the name of a file whose bytes are uploaded to Zotero after the item is made. */
+export function materialItem({ parent, title = "", target = "", vaultName = "", file = "" }) {
+  if (file) {
+    const ext = file.slice(file.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      itemType: "attachment",
+      linkMode: "imported_file",
+      parentItem: parent,
+      title: title.trim() || file,
+      filename: file,
+      contentType: CONTENT_TYPES[ext] || "application/octet-stream",
+      tags: [{ tag: MATERIAL_TAG }, { tag: `material-${fileKind(file) || "file"}` }],
+    };
+  }
   const kind = materialKind(target);
   // an address that ends in .pdf / .md / .xlsx (arxiv.org/pdf/….pdf) is still an address, not a file of the vault
   const isFile = isMaterialFile(target) && !/^[a-z][a-z0-9+.-]*:/i.test(target);
@@ -320,13 +384,19 @@ export function materialItem({ parent, title = "", target, vaultName = "" }) {
   };
 }
 
-/** Is this Zotero child a material that is still attached? */
-export const isMaterial = (it) => !it.data.deleted && (it.data.tags || []).some((t) => t.tag === MATERIAL_TAG);
+/** Is this Zotero child a material that is still attached: any attachment except the paper's own PDF (mainKey)
+ * and the copy of a web page that Zotero's browser connector saves. */
+export const isMaterial = (it, mainKey = null) => it.data.itemType === "attachment" && !it.data.deleted && it.key !== mainKey
+  && !(it.data.linkMode === "imported_url" && it.data.contentType === "text/html");
 
-/** Zotero child item -> { key, title, kind, url, path } (path: inside the vault, "" for an address). */
+/** Zotero child item -> { key, title, kind, url, path, stored }. path: inside the vault, "" otherwise. stored: the
+ * file is in Zotero, and url opens it there. */
 export function materialView(it) {
-  const url = it.data.url || "";
-  const kind = (it.data.tags || []).map((t) => /^material-(\w+)$/.exec(t.tag)?.[1]).find(Boolean) || "link";
+  const d = it.data;
+  const stored = isStored(d);
+  const tagged = (d.tags || []).map((t) => /^material-(\w+)$/.exec(t.tag)?.[1]).find(Boolean);
+  const kind = tagged || (stored ? fileKind(d.filename || "") || "file" : materialKind(d.url || ""));
+  const url = stored ? (kind === "pdf" ? pdfLink(it.key, it.lib) : zoteroLink(it.key, it.lib)) : d.url || "";
   let path = "";
   if (url.startsWith("obsidian://")) {
     try {
@@ -335,12 +405,11 @@ export function materialView(it) {
       path = ""; // an address typed by hand in Zotero: shown as a plain link
     }
   }
-  return { key: it.key, title: it.data.title || url, kind, url, path };
+  return { key: it.key, title: d.title || d.filename || url, kind, url, path, stored };
 }
 
-/** Where a click on a material goes: a PDF kept in 0_media/papers/ opens in the easy-read viewer. */
-export const materialHref = (m, viewerUrl) =>
-  m.kind === "pdf" && m.path.startsWith("0_media/papers/") ? `${viewerUrl}?vault=${encodeURIComponent(m.path)}` : m.url;
+/** Where a click on a material goes: a PDF stored in Zotero opens in the easy-read viewer. */
+export const materialHref = (m, viewerUrl) => (m.stored && m.kind === "pdf" ? `${viewerUrl}?zotero=${m.key}` : m.url);
 
 /** Paper note with one material line in the materials section (the section is created before the notes section).
  * Append-only: unchanged when the material's Zotero key is already mentioned. */
@@ -378,9 +447,9 @@ export function inboxLine(item, slug) {
 
 /** The task cell of a plan row for a new paper. The links come after the first "; " or " · ", so the bar label
  * and the row id of the plan stay short. */
-export function planTaskText(item, slug, key) {
+export function planTaskText(item, slug, key, lib = null) {
   const link = linkOf(item);
-  return `${taskHead(item)}${link ? `; ${link}` : ""} · [[${slug}]] · [Zotero](${zoteroLink(key)})`;
+  return `${taskHead(item)}${link ? `; ${link}` : ""} · [[${slug}]] · [Zotero](${zoteroLink(key, lib)})`;
 }
 
 /** Inbox text with the line added at the end of the task list. Unchanged when the slug is already mentioned. */
@@ -663,6 +732,40 @@ export function noteBody({ quote = "", comment = "", page = null, url = "" }) {
   const source = [page ? `${words().page} ${page}` : "", url].filter(Boolean).join(" · ");
   if (source && quote.trim()) parts.push(source);
   return parts.join("\n\n");
+}
+
+// ---------- highlights of a paper (PDF annotations made in Zotero's reader) ----------
+// One generated file per paper, read-only: the next sync replaces its text, so nothing typed into it is kept.
+
+export const HIGHLIGHTS_MARKER_RE = /^%% zotero-annotations: (\w{8}) %%$/m;
+const HIGHLIGHT_TAGS = "#papers #paper-highlights";
+const DRAWN = new Set(["image", "ink"]); // annotation types that carry no text
+export const highlightsFileName = (paperSlug) => `${paperSlug}--highlights.md`;
+
+// Zotero's reader opens at ?page=<page index + 1>; the printed page label can be "iv", so it is only shown.
+function annotationLink(a) {
+  let page = "";
+  try {
+    page = String(JSON.parse(a.data.annotationPosition).pageIndex + 1);
+  } catch {
+    page = ""; // no position: the annotation key alone still finds the place
+  }
+  return `${pdfLink(a.data.parentItem, a.lib)}?${/^\d+$/.test(page) ? `page=${page}&` : ""}annotation=${a.key}`;
+}
+
+/** annotations: Zotero annotation items of the paper's attachments. w: the words of the file's language. */
+export function renderHighlightsFile({ label, paperSlug, paperKey, annotations }, w = words()) {
+  const blocks = [...annotations]
+    .sort((a, b) => (a.data.annotationSortIndex || "").localeCompare(b.data.annotationSortIndex || ""))
+    .map((a) => {
+      const d = a.data;
+      const quote = d.annotationText || (DRAWN.has(d.annotationType) ? w.drawing : "");
+      const who = a.meta?.createdByUser?.name || a.meta?.createdByUser?.username || ""; // set in a group library
+      const source = [d.annotationPageLabel ? `${w.page} ${d.annotationPageLabel}` : "", `[${w.openInZotero}](${annotationLink(a)})`, who];
+      return [noteBody({ quote, comment: d.annotationComment || "" }), source.filter(Boolean).join(" · ")].filter(Boolean).join("\n\n");
+    });
+  const body = blocks.join("\n\n---\n\n") || w.noHighlights;
+  return `# ${label} — ${w.highlights}\n\n${w.paper}: [[${paperSlug}]]\n\n${w.readOnlyCopy}\n\n${body}\n\n%% zotero-annotations: ${paperKey} %%\n${HIGHLIGHT_TAGS}\n`;
 }
 
 /** The quoted text of a note body (first blockquote), or "". */

@@ -1,13 +1,15 @@
 // Zotero for the service worker: which paper is this document, save it, its notes, the reading list.
-// Papers and notes go to Zotero; the vault gets them through plan-browser's sync (background.js also writes
-// the file of a note it has just made, so that it is in the vault at once).
-import { client, collectionTree, lookupDoi, pmidToDoi, NO_KEY } from "./zotero-api.js";
+// Papers, notes, PDFs and material files go to Zotero; the vault gets the notes through plan-browser's sync
+// (background.js also writes the file of a note it has just made, so that it is in the vault at once).
+// The personal library and every group that has a top-level collection named like the chosen one are read as one.
+import { collectionTree, lookupDoi, pmidToDoi, putMaterial, putPdf, workspace, NO_KEY } from "./zotero-api.js";
 import * as P from "./papers.js";
 
 const SETTINGS_KEY = "zotero";       // storage.local: { apiKey, userId, collection }
 const CACHE_KEY = "zoteroDocs";      // storage.local: [[id, itemKey], …], newest first
 const CACHE_SIZE = 200;
 const NOT_PAPER = new Set(["note", "attachment", "annotation"]);
+const WORKSPACE_TTL_MS = 10 * 60 * 1000; // how long the list of group libraries is trusted
 
 /* ---------- which Zotero item is this document ---------- */
 
@@ -34,14 +36,22 @@ export function makeCache(storage) {
   };
 }
 
-const paperView = (it) => ({
+// pdf: the Zotero key of the attachment that holds the paper's own PDF, or null. zoteroUrl: opens the paper in Zotero.
+const paperView = (it, pdf = null) => ({
   key: it.key,
   title: it.data.title || "",
   label: P.paperLabel(it.data),
   url: it.data.DOI ? `https://doi.org/${it.data.DOI}` : it.data.url || "",
   slug: P.extraGet(it.data.extra, "obsidian")?.split("/").at(-1).replace(/\.md$/, "") || "",
-  pdf: P.extraGet(it.data.extra, "pdf"),
+  pdf,
+  zoteroUrl: P.zoteroLink(it.key, it.lib),
 });
+
+/** The attachments of one paper -> { pdf: key of its own PDF | null, materials }. */
+function filesView(kids) {
+  const main = P.mainPdf(kids);
+  return { pdf: main?.key || null, materials: kids.filter((k) => P.isMaterial(k, main?.key)).map(P.materialView) };
+}
 
 const noteView = (n) => {
   const html = n.data.note || "";
@@ -56,8 +66,10 @@ const noteView = (n) => {
   };
 };
 
-/** The operations behind the "zotero" message. Everything outside is injected, so tests need no network. */
+/** The operations behind the "zotero" message. Everything outside is injected, so tests need no network.
+ * collection: the root collection key, or one per library (the personal one first: new papers go there). */
 export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
+  const roots = [collection].flat();
   async function doiOf(doc) {
     const doi = P.findDoi(doc);
     if (doi) return doi;
@@ -94,12 +106,13 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
   }
 
   async function papersOfTree() {
-    const tree = collectionTree(await zot.collections(), collection);
+    const tree = collectionTree(await zot.collections(), roots);
     if (!tree.length) throw new Error("Коллекция Zotero не найдена. Выбери её в настройках easy-read.");
     const groups = [];
     for (const c of tree) {
       const items = (await zot.collectionTop(c.key)).filter((it) => !NOT_PAPER.has(it.data.itemType) && !it.data.deleted);
-      groups.push({ key: c.key, name: c.name, items });
+      // a collection of a group library carries the name of the group
+      groups.push({ key: c.key, name: c.lib?.type === "group" ? `${c.name} · ${c.lib.name}` : c.name, items });
     }
     return groups;
   }
@@ -123,16 +136,12 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
     const pmid = P.findPmid(doc);
     let extra = P.extraSet(fields.extra || "", "obsidian", `${P.PAPERS_DIR}/${slug}.md`);
     if (pmid) extra = P.extraSet(extra, "PMID", pmid);
-    const { key } = await zot.create({ ...fields, extra, collections: [collection], tags: [{ tag: "reading-list" }] });
-    const pdfUrl = P.pdfUrlOf(doc);
-    if (pdfUrl) {
-      await zot.create({ itemType: "attachment", linkMode: "linked_url", parentItem: key, title: "PDF", url: pdfUrl, contentType: "application/pdf" });
-    }
+    const { key } = await zot.create({ ...fields, extra, collections: [roots[0]], tags: [{ tag: "reading-list" }] });
     await cache.set(docIds(doc, doi), key);
     return zot.item(key);
   }
 
-  /** The children of a paper, read once -> { notes (summary first), materials }. */
+  /** The children of a paper, read once -> { notes (summary first), materials, pdf: key of its own PDF | null }. */
   async function kidsOf(key) {
     const kids = await zot.children(key);
     const notes = kids
@@ -140,19 +149,25 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       .sort((a, b) => (a.data.dateAdded || "").localeCompare(b.data.dateAdded || ""))
       .map(noteView)
       .sort((a, b) => Number(b.summary) - Number(a.summary));
-    return { notes, materials: kids.filter(P.isMaterial).map(P.materialView) };
+    return { notes, ...filesView(kids.filter((k) => !k.data.deleted)) };
   }
   const notesOf = async (key) => (await kidsOf(key)).notes;
 
-  const status = async (item, doc) => ({ paper: item ? paperView(item) : null, pdfUrl: P.pdfUrlOf(doc), ...(item ? await kidsOf(item.key) : { notes: [], materials: [] }) });
+  async function status(item, doc) {
+    const { notes, materials, pdf } = item ? await kidsOf(item.key) : { notes: [], materials: [], pdf: null };
+    return { paper: item ? paperView(item, pdf) : null, pdfUrl: P.pdfUrlOf(doc), notes, materials };
+  }
 
   return {
     async list() {
-      const byPaper = new Map(); // one request for the materials of every paper
-      for (const it of (await zot.materials()).filter(P.isMaterial)) {
-        byPaper.set(it.data.parentItem, [...(byPaper.get(it.data.parentItem) || []), P.materialView(it)]);
+      const byPaper = new Map(); // one request per library for the attachments of every paper
+      for (const it of await zot.attachments()) {
+        if (!it.data.deleted) byPaper.set(it.data.parentItem, [...(byPaper.get(it.data.parentItem) || []), it]);
       }
-      const view = (it) => ({ ...paperView(it), materials: byPaper.get(it.key) || [] });
+      const view = (it) => {
+        const { pdf, materials } = filesView(byPaper.get(it.key) || []);
+        return { ...paperView(it, pdf), materials };
+      };
       return { groups: (await papersOfTree()).map((g) => ({ name: g.name, items: g.items.map(view) })).filter((g) => g.items.length) };
     },
     async status({ doc }) {
@@ -186,17 +201,11 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       const it = await zot.item(noteKey);
       return { conflict: true, remote: { md: P.htmlToMd(it.data.note || ""), version: it.version } };
     },
-    /** The PDF now lives in the vault: remember the path on the item and the file's hash in the cache. */
-    async pdfSaved({ key, path, hash }) {
-      for (let attempt = 0; ; attempt++) {
-        const it = await zot.item(key);
-        if (P.extraGet(it.data.extra, "pdf") === path) break;
-        const res = await zot.patch(key, { extra: P.extraSet(it.data.extra || "", "pdf", path) }, it.version);
-        if (!res.conflict) break;
-        if (attempt) throw new Error("Запись изменилась в Zotero, путь к PDF не записан. Повтори.");
-      }
+    /** The PDF of the paper is now stored in Zotero (the page uploaded it, see zoteroFiles): remember the file's
+     * hash, so the same file opened from the disk is known as this paper. */
+    async pdfSaved({ key, hash }) {
       if (hash) await cache.set([`h:${hash}`], key);
-      return { path };
+      return {};
     },
     /** Take the paper out of the reading list: out of every collection of the tree. The item, its notes and PDF stay. */
     async remove({ key }) {
@@ -213,20 +222,22 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
       }
       return {};
     },
-    /** Attach a material to a paper. target: an address, or a path inside the vault. hash: of a kept PDF. */
-    async materialAdd({ key, title = "", target, hash = null, vaultName = "" }) {
+    /** Attach a link to a paper as a material. target: an address, or the path of a note (.md) inside the vault.
+     * A file goes through zoteroFiles().putMaterial instead: its bytes are stored in Zotero. */
+    async materialAdd({ key, title = "", target, vaultName = "" }) {
       if (!target) throw new Error("Пустой материал: нужен адрес или файл.");
-      const dup = (await zot.children(key)).filter(P.isMaterial).map(P.materialView).find((m) => (m.path || m.url) === target);
-      if (hash) await cache.set([`h:${hash}`], key); // notes taken in this file go to the same paper
+      const dup = filesView((await zot.children(key)).filter((k) => !k.data.deleted)).materials.find((m) => (m.path || m.url) === target);
       if (dup) return { key: dup.key, existed: true };
       const made = await zot.create(P.materialItem({ parent: key, title, target, vaultName }));
       return { key: made.key, existed: false };
     },
-    /** Take a material off the paper: the Zotero child goes to the trash; a file in the vault stays. */
+    /** Take a material off the paper: the Zotero child goes to the trash, with its file when it is stored in Zotero.
+     * A note of the vault stays. The paper's own PDF is not a material and is refused. */
     async materialRemove({ materialKey }) {
       for (let attempt = 0; ; attempt++) {
         const it = await zot.item(materialKey);
-        if (!(it.data.tags || []).some((t) => t.tag === P.MATERIAL_TAG)) throw new Error("Эта запись Zotero — не материал статьи.");
+        const main = it.data.parentItem ? P.mainPdf(await zot.children(it.data.parentItem)) : null;
+        if (!it.data.parentItem || !P.isMaterial(it, main?.key)) throw new Error("Эта запись Zotero — не материал статьи.");
         const res = await zot.patch(materialKey, { deleted: 1 }, it.version);
         if (!res.conflict) return {};
         if (attempt) throw new Error("Запись изменилась в Zotero, материал не убран. Повтори.");
@@ -242,11 +253,36 @@ export function makeOps({ zot, cache, collection, fetchFn = fetch }) {
 
 /* ---------- wiring to chrome.* ---------- */
 
-export async function zotero(msg) {
+let known = null; // { id, at, value }: the libraries of the account, looked up at most once per WORKSPACE_TTL_MS
+
+/** -> { settings, zot, scopes }: the personal library and the groups that joined the reading list, as one client. */
+async function connect() {
   const settings = (await chrome.storage.local.get(SETTINGS_KEY))[SETTINGS_KEY] ?? {};
   if (!settings.apiKey || !settings.userId) throw new Error(NO_KEY);
   if (!settings.collection) throw new Error("Выбери коллекцию Zotero в настройках easy-read.");
-  const ops = makeOps({ zot: client(settings), cache: makeCache(chrome.storage.local), collection: settings.collection });
+  const id = `${settings.apiKey}:${settings.userId}:${settings.collection}`;
+  if (known?.id !== id || Date.now() - known.at > WORKSPACE_TTL_MS) known = { id, at: Date.now(), value: await workspace(settings) };
+  return { settings, ...known.value };
+}
+
+export async function zotero(msg) {
+  const { settings, zot, scopes } = await connect();
+  const ops = makeOps({ zot, cache: makeCache(chrome.storage.local), collection: scopes });
   if (!Object.hasOwn(ops, msg.op)) throw new Error(`unknown zotero op: ${msg.op}`);
   return { ...(await ops[msg.op]({ ...msg, vaultName: settings.vaultName || "" })), vault: settings.vaultName || "" };
+}
+
+/** Files in Zotero's storage, for the pages that hold the bytes (the viewer, the reading list): a file never
+ * travels in a runtime message. putPdf: the paper's own PDF; putMaterial: a file attached as a material;
+ * get: a stored attachment -> { bytes, name, paper: the key of the paper it belongs to | null }. */
+export async function zoteroFiles() {
+  const { zot } = await connect();
+  return {
+    putPdf: (paperKey, bytes, filename) => putPdf(zot, paperKey, bytes, filename),
+    putMaterial: (paperKey, bytes, filename) => putMaterial(zot, paperKey, bytes, filename),
+    get: async (attKey) => {
+      const it = await zot.item(attKey);
+      return { bytes: await zot.download(attKey), name: it.data.filename || it.data.title || "PDF", paper: it.data.parentItem || null };
+    },
+  };
 }

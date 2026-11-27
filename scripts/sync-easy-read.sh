@@ -12,6 +12,6 @@ copy() {
   echo "copied $1 -> $2"
 }
 copy "${EASY_READ_SKILL:-$SKILLS/easy-read}/easy-read.js" "$DEST/easy-read.js"
-for f in zotero-api.js papers.js; do
+for f in zotero-api.js papers.js md5.js; do
   copy "$SKILLS/zotero-link/$f" "$DEST/$f"
 done

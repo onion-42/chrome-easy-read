@@ -1,8 +1,9 @@
 // Reading list: the papers of the chosen Zotero collection, grouped by sub-collection.
-// "Читать" opens the PDF kept in the vault when there is one, else the paper's address.
+// "Читать" opens the paper's PDF stored in Zotero when there is one, else the paper's address.
 // Every paper also shows its materials (supplementary PDFs, notes, videos, threads, slides): links that are
-// always visible, and a block to add and remove them.
-import { getVault, permission, keepPdf, saveMaterial, vaultPathOf } from "./vault-pdf.js";
+// always visible, and a block to add and remove them. Files are stored in Zotero; only a note (.md) stays in the vault.
+import { getVault, permission, saveMaterial, vaultPathOf } from "./vault-pdf.js";
+import { zoteroFiles } from "./zotero.js";
 import * as P from "./papers.js";
 
 const $ = (id) => document.getElementById(id);
@@ -49,51 +50,36 @@ async function sha256(bytes) {
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-const readUrl = (p) => (p.pdf ? `${VIEWER}?vault=${encodeURIComponent(p.pdf)}` : p.url);
+const readUrl = (p) => (p.pdf ? `${VIEWER}?zotero=${encodeURIComponent(p.pdf)}` : p.url);
 const obsidianUrl = (p) => `obsidian://open?${vault ? `vault=${encodeURIComponent(vault)}&` : ""}file=${encodeURIComponent(p.slug)}`;
 
-/** Confirm access to the vault folder -> true when a PDF can be written now. Chrome allows the request only
- * right after a click, so this runs in the button's click, before the file dialog (which outlasts the click). */
-async function vaultReady() {
+/** The vault folder when it can be written now, else null. Only a material note (.md) needs it. Chrome allows the
+ * access request only right after a click, so this runs in the button's click, before the file dialog (which
+ * outlasts the click). */
+async function vaultDir(ask = true) {
   try {
     const dir = await getVault();
-    if (!dir) {
-      say("PDF не сохранён: папка vault не выбрана (Настройки).", true);
-      return false;
-    }
-    if ((await permission(dir, true)) === "granted") return true;
-    say("PDF не сохранён: нет доступа к папке vault. Нажми кнопку ещё раз и выбери «Разрешить».", true);
+    return dir && (await permission(dir, ask)) === "granted" ? dir : null;
   } catch (e) {
     say(`Нет доступа к папке vault: ${e.message}`, true);
+    return null;
   }
-  return false;
 }
 
-/** Put the chosen file into the vault as this paper's PDF (asks before replacing another file).
- * Access to the folder is confirmed earlier, in the click (vaultReady); here it is only checked. */
+/** Store the chosen file in Zotero as this paper's PDF (asks before replacing the one the paper has). */
 async function attach(paper, file) {
   if (!file || file.type !== "application/pdf") {
     say("Нужен файл PDF.", true);
     return;
   }
-  if (!paper.slug) {
-    say("У статьи ещё нет заметки в Obsidian. Открой панель plan-browser (синхронизация) и повтори.", true);
-    return;
-  }
+  if (paper.pdf && !confirm(`У статьи «${paper.label}» уже есть PDF в Zotero. Заменить его этим файлом?`)) return;
   try {
+    say(`Загружаю PDF в Zotero: ${paper.label}…`);
     const bytes = new Uint8Array(await file.arrayBuffer());
-    let res = await keepPdf(paper.slug, bytes);
-    if (res.existed && confirm(`У статьи «${paper.label}» уже есть PDF в vault. Заменить его этим файлом?`)) {
-      res = await keepPdf(paper.slug, bytes, { replace: true });
-    }
-    if (res.reason) {
-      const why = { "no-vault": "папка vault не выбрана (Настройки)", permission: "нет доступа к папке vault: нажми «Прикрепить PDF…» и выбери «Разрешить»", "too-big": "файл больше 95 МБ, GitHub не примет его в vault" };
-      say(`PDF не сохранён: ${why[res.reason] || res.reason}.`, true);
-      return;
-    }
-    await zotero("pdfSaved", { key: paper.key, path: res.path, hash: await sha256(bytes) });
-    say(`PDF привязан: ${paper.label} → ${res.path}`);
+    await (await zoteroFiles()).putPdf(paper.key, bytes, `${paper.slug || "paper"}.pdf`);
+    await zotero("pdfSaved", { key: paper.key, hash: await sha256(bytes) });
     await load();
+    say(`PDF сохранён в Zotero: ${paper.label}`);
   } catch (e) {
     say(`PDF не сохранён: ${e.message}`, true);
   }
@@ -104,13 +90,21 @@ async function attach(paper, file) {
 const materialLabel = (m) => `${P.MATERIAL_KINDS[m.kind] || m.kind}: ${m.title}`;
 const materialLink = (m) => el("a", { href: P.materialHref(m, VIEWER), target: "_blank", rel: "noreferrer", text: materialLabel(m) });
 
-/** One picked or dropped file becomes a material: a file of the vault is linked where it is, any other file
- * is copied (.md -> 1_education/papers/materials/, PDF / Word / Excel -> 0_media/papers/). -> the line for the status. */
+/** One picked or dropped file becomes a material. A PDF, Word or Excel file is stored in Zotero. A note (.md) stays
+ * in the vault: linked where it is, or copied to 1_education/papers/materials/ first. dir: the vault folder, or
+ * null when it cannot be written now. -> the line for the status. */
 async function addFile(p, dir, handle) {
   const file = await handle.getFile();
   const kind = P.materialKind(file.name);
   if (!P.isMaterialFile(file.name)) return `${file.name}: не прикреплён, нужен PDF, .md, .docx или .xlsx`;
   const bytes = new Uint8Array(await file.arrayBuffer());
+  if (kind !== "note") {
+    if (p.materials.some((m) => m.stored && m.title === file.name)) return `${file.name}: уже прикреплён`;
+    await (await zoteroFiles()).putMaterial(p.key, bytes, file.name);
+    if (kind === "pdf") await zotero("pdfSaved", { key: p.key, hash: await sha256(bytes) }); // notes taken in this file go to the same paper
+    return `${file.name} → Zotero`;
+  }
+  if (!dir) return `${file.name}: не прикреплён, заметка .md хранится в vault, а доступа к папке vault нет. Нажми «Добавить файлы…» ещё раз и выбери «Разрешить» (или выбери папку в настройках)`;
   let path = await vaultPathOf(dir, handle);
   let how = "на месте";
   if (!path) {
@@ -119,14 +113,14 @@ async function addFile(p, dir, handle) {
     path = saved.path;
     how = saved.existed ? "такой файл уже был в vault" : "скопирован в vault";
   }
-  const res = await zotero("materialAdd", { key: p.key, title: file.name, target: path, hash: kind === "pdf" ? await sha256(bytes) : null });
+  const res = await zotero("materialAdd", { key: p.key, title: file.name, target: path });
   return `${file.name} → ${path} (${res.existed ? "уже прикреплён" : how})`;
 }
 
-/** Attach several files; one failure does not stop the rest. Access to the vault is confirmed by the caller. */
-async function addFiles(p, handles) {
-  const dir = await getVault();
+/** Attach several files; one failure does not stop the rest. dir: the vault folder (vaultDir), asked by the caller. */
+async function addFiles(p, dir, handles) {
   const lines = [];
+  say(`Прикрепляю файлы к «${p.label}»…`);
   let failed = false;
   for (const handle of handles) {
     try {
@@ -164,7 +158,7 @@ function manageBox(p) {
   const list = el("ul", {}, p.materials.map((m) => {
     const drop = el("button", { type: "button", text: "Убрать", "aria-label": `Убрать материал: ${m.title}` });
     drop.addEventListener("click", async () => {
-      if (!confirm(`Убрать материал «${m.title}» у статьи «${p.label}»?\nЗапись уйдёт в корзину Zotero. Файл в vault останется.`)) return;
+      if (!confirm(`Убрать материал «${m.title}» у статьи «${p.label}»?\nЗапись уйдёт в корзину Zotero${m.stored ? " вместе с файлом" : ""}. Заметка в vault останется.`)) return;
       drop.disabled = true;
       try {
         await zotero("materialRemove", { materialKey: m.key });
@@ -179,9 +173,10 @@ function manageBox(p) {
   }));
   const files = el("button", { type: "button", text: "Добавить файлы…", title: "PDF (supplementary, ответы рецензентам), заметки .md (транскрипт, заметка о видео), Word .docx и Excel .xlsx; можно несколько" });
   files.addEventListener("click", async () => {
-    if (!(await vaultReady())) return;
+    const dir = await vaultDir();
+    // answering Chrome's access question can outlast the click; the file dialog needs a fresh one
     if (!window.__pickFiles && !navigator.userActivation.isActive) {
-      say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файлы.");
+      say("Нажми кнопку ещё раз, чтобы выбрать файлы.");
       return;
     }
     let handles;
@@ -192,7 +187,7 @@ function manageBox(p) {
       if (e.name !== "AbortError") say(`Файлы не выбраны: ${e.message}`, true);
       return;
     }
-    await addFiles(p, handles);
+    await addFiles(p, dir, handles);
   });
   const address = el("input", { type: "url", placeholder: "https://… (видео, тред в X, Google Slides, любая ссылка)", "aria-label": `Адрес материала для ${p.label}` });
   const title = el("input", { type: "text", placeholder: "Название (необязательно)", "aria-label": `Название материала для ${p.label}` });
@@ -208,17 +203,14 @@ function manageBox(p) {
 function row(p) {
   const actions = el("div", { class: "bar" }, [
     el("a", { class: "btn", href: readUrl(p) || "#", target: "_blank", rel: "noreferrer", text: "Читать" }),
-    el("a", { class: "btn", href: `zotero://select/library/items/${p.key}`, text: "Zotero" }),
+    el("a", { class: "btn", href: p.zoteroUrl, text: "Zotero" }),
   ]);
   if (p.slug) actions.append(el("a", { class: "btn", href: obsidianUrl(p), text: "Obsidian" }));
   actions.append(el("a", { class: "btn", href: `notes.html?key=${encodeURIComponent(p.key)}`, target: "_blank", text: "Заметки" }));
   const pick = el("button", { type: "button", text: p.pdf ? "Заменить PDF…" : "Прикрепить PDF…" });
-  pick.addEventListener("click", async () => {
+  pick.addEventListener("click", () => {
     attachTo = p;
-    if (!(await vaultReady())) return;
-    // answering Chrome's access question can outlast the click; the file dialog needs a fresh one
-    if (navigator.userActivation.isActive) $("file").click();
-    else say("Доступ к папке vault подтверждён. Нажми кнопку ещё раз, чтобы выбрать файл.");
+    $("file").click();
   });
   actions.append(pick);
   const more = el("button", { type: "button", "aria-expanded": String(managing.has(p.key)), text: `Материалы… (${p.materials.length})`, title: "Добавить или убрать материалы статьи" });
@@ -249,7 +241,7 @@ function row(p) {
   const item = el("li", {}, [
     el("p", { class: "title" }, [document.createTextNode(`${p.label} `), el("span", { text: `— ${p.title}` })]),
     actions,
-    el("p", { class: "soft", text: p.pdf ? `PDF ✓ ${p.pdf}` : "PDF в vault нет" }),
+    el("p", { class: "soft", text: p.pdf ? "PDF ✓ в Zotero" : "PDF в Zotero нет" }),
     ...(p.materials.length ? [el("p", { class: "soft mats" }, [document.createTextNode("Материалы:"), ...p.materials.map(materialLink)])] : []),
     box,
   ]);
@@ -269,8 +261,8 @@ function row(p) {
     }
     // the handles must be asked for inside the event; a handle tells whether the file already lies in the vault
     const asked = [...e.dataTransfer.items].filter((it) => it.kind === "file").map((it) => it.getAsFileSystemHandle());
-    if (!(await vaultReady())) return;
-    await addFiles(p, (await Promise.all(asked)).filter((h) => h && h.kind === "file"));
+    const dir = await vaultDir(dropped.some((f) => /\.md$/i.test(f.name))); // only a note needs the vault
+    await addFiles(p, dir, (await Promise.all(asked)).filter((h) => h && h.kind === "file"));
   });
   return item;
 }
@@ -297,7 +289,7 @@ async function load() {
     const dir = await getVault();
     const access = dir ? await permission(dir) : null;
     if ($("status").textContent.startsWith("Загружаю")) {
-      say(!groups.length ? "В коллекции пока нет статей." : !dir ? "Папка vault не выбрана (Настройки)." : access !== "granted" ? "Доступ к папке vault подтвердится при первом открытии или прикреплении PDF." : "");
+      say(!groups.length ? "В коллекции пока нет статей." : !dir ? "Папка vault не выбрана (Настройки): заметки не будут записываться в vault сразу." : access !== "granted" ? "Доступ к папке vault подтвердится при первом прикреплении заметки .md." : "");
     }
     render();
   } catch (e) {

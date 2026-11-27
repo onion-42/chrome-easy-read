@@ -6,7 +6,7 @@ const viewerUrl = (sw, query = "") => `chrome-extension://${new URL(sw.url()).ho
 /* An in-memory Zotero (and Crossref) inside the service worker: the extension's own fetch calls land here. */
 async function fakeZotero(sw, papers = []) {
   await sw.evaluate(async (seed) => {
-    const z = (self.__z = { items: new Map(), n: 0, version: 10 });
+    const z = (self.__z = { items: new Map(), files: new Map(), n: 0, version: 10 });
     for (const p of seed) z.items.set(p.key, { key: p.key, version: 1, data: p.data });
     const json = (body, status = 200, version = z.version) =>
       new Response(body === null ? null : JSON.stringify(body), { status, headers: { "Last-Modified-Version": String(version), "Total-Results": String(Array.isArray(body) ? body.length : 0) } });
@@ -20,6 +20,31 @@ async function fakeZotero(sw, papers = []) {
       const path = url.pathname.replace(/^\/users\/\d+/, "");
       const all = [...z.items.values()];
       const method = init.method || "GET";
+      const header = (name) => Object.entries(init.headers || {}).find(([k]) => k.toLowerCase() === name)?.[1];
+      if (path === "/groups") return json([]); // the account is in no group library
+      // the file of an attachment: upload in three requests (authorise, bytes to the storage, register); download
+      // in two (a temporary address, then the bytes from the storage, which must get no API key)
+      const stored = /^\/fake-storage\/(\w+)$/.exec(path);
+      if (stored && method === "POST") {
+        z.files.set(stored[1], new Uint8Array(await init.body.arrayBuffer()));
+        return json(null, 201);
+      }
+      if (stored) return header("zotero-api-key") ? json(null, 400) : new Response(z.files.get(stored[1]), { status: 200 });
+      const view = /^\/items\/(\w+)\/file\/view\/url$/.exec(path);
+      if (view) return z.files.has(view[1]) ? new Response(`https://api.zotero.org/fake-storage/${view[1]}`, { status: 200 }) : json(null, 404);
+      const file = /^\/items\/(\w+)\/file$/.exec(path);
+      if (file && method === "POST") {
+        const form = new URLSearchParams(init.body);
+        const it = z.items.get(file[1]);
+        if (form.has("upload")) {
+          it.version = ++z.version;
+          return json(null, 204);
+        }
+        if (it.data.md5 ? header("if-match") !== it.data.md5 : header("if-none-match") !== "*") return json(null, 412);
+        it.data = { ...it.data, md5: form.get("md5"), filename: form.get("filename") };
+        return json({ url: `https://api.zotero.org/fake-storage/${file[1]}`, contentType: "application/octet-stream", prefix: "", suffix: "", uploadKey: "up" });
+      }
+      if (file) return json(null, 400); // a plain GET would redirect to the storage with the API key: not used
       if (path === "/keys/current") return json({ userID: 1, username: "test", access: { user: { library: true, write: true } } });
       if (path === "/collections") return json([{ key: "ROOT", data: { name: "Reading list", parentCollection: false } }]);
       if (path === "/collections/ROOT/items/top") return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.parentItem && (it.data.collections ?? ["ROOT"]).includes("ROOT")) : []);
@@ -33,15 +58,15 @@ async function fakeZotero(sw, papers = []) {
       }
       if (method === "PATCH" && one) {
         const it = z.items.get(one[1]);
-        if (Number(init.headers["If-Unmodified-Since-Version"]) < it.version) return json(null, 412);
+        if (Number(header("if-unmodified-since-version")) < it.version) return json(null, 412);
         it.data = { ...it.data, ...JSON.parse(init.body) };
         it.version = ++z.version;
         return json(null, 204);
       }
       if (one?.[2]) return json(url.searchParams.get("start") === "0" ? all.filter((it) => it.data.parentItem === one[1]) : []);
       if (one) return z.items.has(one[1]) ? json(z.items.get(one[1]), 200, z.items.get(one[1]).version) : json(null, 404);
-      if (path === "/items" && url.searchParams.get("itemType") === "attachment") { // the materials of every paper
-        return json(url.searchParams.get("start") === "0" ? all.filter((it) => !it.data.deleted && (it.data.tags || []).some((t) => t.tag === url.searchParams.get("tag"))) : []);
+      if (path === "/items" && url.searchParams.get("itemType")) { // every attachment of the library
+        return json(url.searchParams.get("start") === "0" ? all.filter((it) => it.data.itemType === url.searchParams.get("itemType")) : []);
       }
       if (path === "/items") {
         const q = url.searchParams.get("q") || "";
@@ -54,6 +79,8 @@ async function fakeZotero(sw, papers = []) {
 }
 
 const zItems = (sw) => sw.evaluate(() => [...self.__z.items.values()]);
+const zFileSize = (sw, key) => sw.evaluate((k) => self.__z.files.get(k)?.byteLength ?? null, key);
+const pdfsOf = async (sw, paperKey) => (await zItems(sw)).filter((it) => it.data.parentItem === paperKey && it.data.linkMode === "imported_file" && it.data.contentType === "application/pdf" && !(it.data.tags || []).length);
 const notesOf = async (sw) => (await zItems(sw)).filter((it) => it.data.itemType === "note");
 
 async function openNotes(sw, match) {
@@ -98,7 +125,7 @@ test("a note on selected text of an article page goes to Zotero and is highlight
   const paper = items.find((it) => it.data.itemType === "journalArticle");
   expect(paper.data.DOI).toBe("10.1234/tls.2026.001"); // recognised by the meta tag, saved with the first note
   expect(paper.data.extra).toBe("obsidian: 1_education/papers/lin-2026-tls-networks-three.md");
-  expect(items.find((it) => it.data.itemType === "attachment").data.url).toBe(`${server}/paper.pdf`);
+  expect(items.filter((it) => it.data.itemType === "attachment")).toEqual([]); // no link to the journal's PDF is kept
   const [note] = await notesOf(sw);
   expect(note.data.parentItem).toBe(paper.key);
   expect(note.data.note).toContain("<blockquote><p>Each network was assembled from serial sections");
@@ -163,13 +190,12 @@ test("editing a note, a conflict that keeps my text, and one summary per paper",
   expect(notes.filter((n) => n.data.tags.some((t) => t.tag === "summary"))).toHaveLength(1);
 });
 
-test("in the PDF viewer: note with the page number, the PDF goes to the vault folder", async ({ context, sw, server }) => {
+test("in the PDF viewer: note with the page number, the PDF is stored in Zotero and opens from there", async ({ context, sw, server }) => {
   await fakeZotero(sw);
   await sw.evaluate((p) => chrome.storage.sync.set({ settings: p }), PROFILE);
   const page = await context.newPage();
   await page.goto(viewerUrl(sw, `?file=${encodeURIComponent(`${server}/paper.pdf`)}`));
   await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
-  await page.evaluate(async () => { window.__vaultOverride = await navigator.storage.getDirectory(); });
 
   await select(page, "article p");
   await openNotes(sw, "/viewer.html");
@@ -177,29 +203,34 @@ test("in the PDF viewer: note with the page number, the PDF goes to the vault fo
   await panel.getByLabel("Текст заметки").fill("заметка в PDF");
   await panel.getByLabel("Текст заметки").press("Control+Enter");
   await expect(panel.locator(".er-n-item")).toHaveCount(1);
-  await expect(panel).toContainText("PDF ✓ 0_media/papers/");
+  await expect(panel).toContainText("PDF ✓ в Zotero");
 
   const items = await zItems(sw);
   const paper = items.find((it) => !["note", "attachment"].includes(it.data.itemType));
-  const path = /^pdf: (.+)$/m.exec(paper.data.extra)[1];
+  expect(paper.data.extra).not.toContain("pdf:");
   expect((await notesOf(sw))[0].data.note).toMatch(/Стр\. 1 · http/);
-  const size = await page.evaluate(async (p) => {
-    let dir = await navigator.storage.getDirectory();
-    const parts = p.split("/");
-    for (const name of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(name);
-    return (await (await dir.getFileHandle(parts.at(-1))).getFile()).size;
-  }, path);
-  expect(size).toBeGreaterThan(1000);
+  const pdfs = await pdfsOf(sw, paper.key);
+  expect(pdfs).toHaveLength(1); // one upload, although the panel refreshed more than once
+  expect(pdfs[0].data.filename).toMatch(/^[a-z0-9-]+\.pdf$/);
+  expect(await zFileSize(sw, pdfs[0].key)).toBeGreaterThan(1000);
   expect(await highlights(page)).toHaveLength(1);
+
+  // the stored file opens in the viewer by the key of its attachment, and the panel knows its paper
+  const again = await context.newPage();
+  await again.goto(viewerUrl(sw, `?zotero=${pdfs[0].key}`));
+  await expect(again.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
+  await openNotes(sw, `?zotero=${pdfs[0].key}`);
+  await expect(again.locator("#er-notes .er-n-item")).toHaveCount(1);
+  await expect(again.locator("#er-notes")).toContainText("PDF ✓ в Zotero");
+  expect(await pdfsOf(sw, paper.key)).toHaveLength(1); // a file read from Zotero is not uploaded again
 });
 
-test("my own PDF: a local file is tied to a paper of the reading list and saved under its name", async ({ context, sw }) => {
+test("my own PDF: a local file is tied to a paper of the reading list and stored in Zotero under its name", async ({ context, sw }) => {
   const seeded = { key: "SEEDED01", data: { itemType: "journalArticle", title: "A paper I asked the author for", creators: [{ lastName: "Meylan" }], date: "2022", extra: "obsidian: 1_education/papers/meylan-2022-tls.md" } };
   await fakeZotero(sw, [seeded]);
   await sw.evaluate((p) => chrome.storage.sync.set({ settings: p }), PROFILE);
   const page = await context.newPage();
   await page.goto(viewerUrl(sw));
-  await page.evaluate(async () => { window.__vaultOverride = await navigator.storage.getDirectory(); });
   await page.locator("#file").setInputFiles(TEST_PDF);
   await expect(page.locator("body")).toHaveAttribute("data-state", "ready", { timeout: 15_000 });
 
@@ -209,48 +240,44 @@ test("my own PDF: a local file is tied to a paper of the reading list and saved 
   await panel.locator("select").selectOption("SEEDED01");
   await panel.getByRole("button", { name: "Привязать этот файл к выбранной статье" }).click();
   await expect(panel).toContainText("Заметки · Meylan 2022");
-  await expect(panel).toContainText("PDF ✓ 0_media/papers/meylan-2022-tls.pdf");
-  const paper = (await zItems(sw)).find((it) => it.key === "SEEDED01");
-  expect(paper.data.extra).toContain("pdf: 0_media/papers/meylan-2022-tls.pdf");
+  await expect(panel).toContainText("PDF ✓ в Zotero");
+  const [pdf] = await pdfsOf(sw, "SEEDED01");
+  expect(pdf.data.filename).toBe("meylan-2022-tls.pdf");
+  expect(await zFileSize(sw, pdf.key)).toBeGreaterThan(1000);
 
-  // the reading list shows it and "Читать" points at the vault copy
+  // the reading list shows it and "Читать" points at the file in Zotero
   const list = await context.newPage();
   await list.goto(viewerUrl(sw).replace("viewer.html", "reading.html"));
   await expect(list.locator("li")).toHaveCount(1);
-  await expect(list.locator("li")).toContainText("PDF ✓ 0_media/papers/meylan-2022-tls.pdf");
-  await expect(list.getByRole("link", { name: "Читать" })).toHaveAttribute("href", /viewer\.html\?vault=0_media%2Fpapers%2Fmeylan-2022-tls\.pdf$/);
+  await expect(list.locator("li")).toContainText("PDF ✓ в Zotero");
+  await expect(list.getByRole("link", { name: "Читать" })).toHaveAttribute("href", new RegExp(`viewer\\.html\\?zotero=${pdf.key}$`));
   await expect(list.getByRole("link", { name: "Zotero" })).toHaveAttribute("href", "zotero://select/library/items/SEEDED01");
 });
 
-test("reading list: attaching a PDF confirms the vault folder inside the click, before the file is chosen", async ({ context, sw }) => {
+test("reading list: a PDF is attached without the vault folder and stored in Zotero; a second file replaces the first after a question", async ({ context, sw }) => {
   const seeded = { key: "SEEDED02", data: { itemType: "journalArticle", title: "Clonal neoantigens", creators: [{ lastName: "McGranahan" }], date: "2016", extra: "obsidian: 1_education/papers/mcgranahan-2016-clonal.md" } };
   await fakeZotero(sw, [seeded]);
   const list = await context.newPage();
   await list.goto(viewerUrl(sw).replace("viewer.html", "reading.html"));
   await expect(list.locator("li")).toHaveCount(1);
-  // a vault folder as it is after a Chrome restart: access must be confirmed again, and Chrome allows that
-  // request only while a click is still "fresh" (about 5 seconds; choosing a file in the dialog takes longer)
-  await list.evaluate(async () => {
-    const root = await navigator.storage.getDirectory();
-    let state = "prompt";
-    window.__vaultOverride = {
-      queryPermission: async () => state,
-      requestPermission: async () => {
-        if (window.__clickExpired || !navigator.userActivation.isActive) throw new DOMException("User activation is required to request permissions.", "SecurityError");
-        state = "granted";
-        return state;
-      },
-      getDirectoryHandle: (name, o) => root.getDirectoryHandle(name, o),
-    };
-  });
+  await expect(list.locator("li")).toContainText("PDF в Zotero нет");
 
   const chooser = list.waitForEvent("filechooser");
-  await list.getByRole("button", { name: "Прикрепить PDF…" }).click();
-  const dialog = await chooser;
-  await list.evaluate(() => { window.__clickExpired = true; });
-  await dialog.setFiles(TEST_PDF);
-  await expect(list.locator("#status")).toContainText("PDF привязан: McGranahan 2016");
-  await expect(list.locator("li")).toContainText("PDF ✓ 0_media/papers/mcgranahan-2016-clonal.pdf");
+  await list.getByRole("button", { name: "Прикрепить PDF…" }).click(); // no vault folder is chosen: none is needed
+  await (await chooser).setFiles(TEST_PDF);
+  await expect(list.locator("#status")).toContainText("PDF сохранён в Zotero: McGranahan 2016");
+  await expect(list.locator("li")).toContainText("PDF ✓ в Zotero");
+  const [pdf] = await pdfsOf(sw, "SEEDED02");
+  expect(pdf.data.filename).toBe("mcgranahan-2016-clonal.pdf");
+  expect(await zFileSize(sw, pdf.key)).toBeGreaterThan(1000);
+
+  // the same paper again: the question is asked, and the file goes into the same attachment
+  list.once("dialog", (d) => d.accept());
+  const second = list.waitForEvent("filechooser");
+  await list.getByRole("button", { name: "Заменить PDF…" }).click();
+  await (await second).setFiles(TEST_PDF);
+  await expect(list.locator("#status")).toContainText("PDF сохранён в Zotero: McGranahan 2016");
+  expect((await pdfsOf(sw, "SEEDED02")).map((it) => it.key)).toEqual([pdf.key]);
 });
 
 test("reading list: a paper is removed from the list after a confirmation; the Zotero item stays", async ({ context, sw }) => {
@@ -509,23 +536,27 @@ test("reading list: a link and files become materials of the paper, their links 
   await expect(row.locator(".mats a")).toHaveCount(1);
   await row.getByRole("button", { name: "Добавить файлы…" }).click();
   await expect(row.locator(".mats a")).toHaveCount(3);
-  await expect(page.locator("#status")).toContainText("скопирован в vault");
+  await expect(page.locator("#status")).toContainText("Supplementary Tables.pdf → Zotero");
   await expect(page.locator("#status")).toContainText("talk transcript.md → 2_work/talk transcript.md (на месте)");
 
   const viewer = `chrome-extension://${new URL(sw.url()).host}/viewer.html`;
   await expect(row.locator(".mats a", { hasText: "видео: Talk at ASCO" })).toHaveAttribute("href", "https://youtu.be/abc123");
-  await expect(row.locator(".mats a", { hasText: "PDF: Supplementary Tables.pdf" })).toHaveAttribute("href", `${viewer}?vault=${encodeURIComponent("0_media/papers/meylan-2022-tls--supplementary-tables.pdf")}`);
-  await expect(row.locator(".mats a", { hasText: "заметка: talk transcript.md" })).toHaveAttribute("href", "obsidian://open?vault=vault&file=2_work%2Ftalk%20transcript.md");
-
   const items = await materialsOf(sw);
   expect(items.map((it) => it.data.tags.map((t) => t.tag).join(" ")).sort()).toEqual(["paper-material material-note", "paper-material material-pdf", "paper-material material-video"]);
-  expect(items.every((it) => it.data.parentItem === "SEEDED01" && it.data.linkMode === "linked_url")).toBe(true);
-  const copied = await page.evaluate(async () => {
-    let dir = await (await navigator.storage.getDirectory()).getDirectoryHandle("vault");
-    for (const name of ["0_media", "papers"]) dir = await dir.getDirectoryHandle(name);
-    return (await (await dir.getFileHandle("meylan-2022-tls--supplementary-tables.pdf")).getFile()).text();
-  });
-  expect(copied).toBe("%PDF-1.4 supplementary");
+  expect(items.every((it) => it.data.parentItem === "SEEDED01")).toBe(true);
+  // the PDF is a file in Zotero (not a copy in the vault); the note and the video stay links
+  const suppl = items.find((it) => it.data.linkMode === "imported_file");
+  expect([suppl.data.filename, suppl.data.contentType]).toEqual(["Supplementary Tables.pdf", "application/pdf"]);
+  expect(await zFileSize(sw, suppl.key)).toBe("%PDF-1.4 supplementary".length);
+  expect(items.filter((it) => it.data.linkMode === "linked_url")).toHaveLength(2);
+  expect(await page.evaluate(async () => {
+    const vault = await (await navigator.storage.getDirectory()).getDirectoryHandle("vault");
+    const names = [];
+    for await (const name of vault.keys()) names.push(name);
+    return names;
+  })).toEqual(["2_work"]); // nothing was copied into the vault
+  await expect(row.locator(".mats a", { hasText: "PDF: Supplementary Tables.pdf" })).toHaveAttribute("href", `${viewer}?zotero=${suppl.key}`);
+  await expect(row.locator(".mats a", { hasText: "заметка: talk transcript.md" })).toHaveAttribute("href", "obsidian://open?vault=vault&file=2_work%2Ftalk%20transcript.md");
 
   page.once("dialog", (d) => d.accept());
   await row.getByRole("button", { name: "Убрать материал: Talk at ASCO" }).click();
@@ -533,10 +564,11 @@ test("reading list: a link and files become materials of the paper, their links 
   expect(await materialsOf(sw)).toHaveLength(2);
 });
 
-test("notes panel: links to the materials of the open paper; a PDF of the vault opens in the viewer", async ({ context, sw, server }) => {
+test("notes panel: links to the materials of the open paper; a PDF stored in Zotero opens in the viewer", async ({ context, sw, server }) => {
   const paper = { key: "SEEDED01", data: { itemType: "journalArticle", title: "TLS networks in three dimensions", creators: [{ lastName: "Lin" }], date: "2026", DOI: "10.1234/tls.2026.001", extra: "obsidian: 1_education/papers/lin-2026-tls.md" } };
   const mat = (key, title, url, kind) => ({ key, data: { itemType: "attachment", linkMode: "linked_url", parentItem: "SEEDED01", title, url, tags: [{ tag: "paper-material" }, { tag: `material-${kind}` }] } });
-  await fakeZotero(sw, [paper, mat("MAT00001", "Thread", "https://x.com/a/status/1", "thread"), mat("MAT00002", "Supplementary", "obsidian://open?vault=vault&file=0_media%2Fpapers%2Flin-2026-tls--supp.pdf", "pdf")]);
+  const suppl = { key: "MAT00002", data: { itemType: "attachment", linkMode: "imported_file", parentItem: "SEEDED01", title: "Supplementary", filename: "supp.pdf", contentType: "application/pdf", tags: [{ tag: "paper-material" }, { tag: "material-pdf" }] } };
+  await fakeZotero(sw, [paper, mat("MAT00001", "Thread", "https://x.com/a/status/1", "thread"), suppl]);
   const page = await openArticle(context, sw, server);
   await openNotes(sw, "noted.html");
   const mats = page.locator("#er-notes .er-n-mats");
@@ -544,5 +576,5 @@ test("notes panel: links to the materials of the open paper; a PDF of the vault 
   await expect(mats.locator("a", { hasText: "тред: Thread" })).toHaveAttribute("href", "https://x.com/a/status/1");
   const opened = context.waitForEvent("page");
   await mats.locator("a", { hasText: "PDF: Supplementary" }).click();
-  expect((await opened).url()).toContain(`/viewer.html?vault=${encodeURIComponent("0_media/papers/lin-2026-tls--supp.pdf")}`);
+  expect((await opened).url()).toContain("/viewer.html?zotero=MAT00002");
 });

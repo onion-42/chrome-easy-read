@@ -1,7 +1,7 @@
 /* notes.js: notes on the article being read. A note = quote + comment, stored in Zotero as a child note of
  * the paper (the service worker talks to Zotero). Quotes are highlighted with the CSS Custom Highlight API,
  * so the page's DOM is never changed. Injected after reader.js, in the same isolated world; the PDF viewer
- * loads it too and offers window.__erDoc (what is open), window.__erPdf (save the file into the vault) and
+ * loads it too and offers window.__erDoc (what is open), window.__erPdf (store the file in Zotero) and
  * window.__erView (text view or PDF view; in PDF view quotes live in the text layers of the pages).
  * notes.html (the notes of one paper in a tab of their own) loads it too and sets window.__erNotesPage:
  * there the panel is the page, it names its paper by key, and there is no article text. */
@@ -260,7 +260,7 @@
     statusEl.textContent = p ? "✓ В Zotero" : "Статьи ещё нет в Zotero. Она сохранится вместе с первой заметкой.";
     linksEl.textContent = "";
     if (p) {
-      linksEl.appendChild(link("Zotero", "zotero://select/library/items/" + p.key));
+      linksEl.appendChild(link("Zotero", p.zoteroUrl));
       if (p.slug) linksEl.appendChild(link("Obsidian", "obsidian://open?" + (st.vault ? "vault=" + encodeURIComponent(st.vault) + "&" : "") + "file=" + encodeURIComponent(p.slug)));
       linksEl.appendChild(button("Вывод по статье", "Одна общая заметка ко всей статье", startSummary));
     } else {
@@ -290,7 +290,7 @@
       var href = st.P.materialHref(m, viewer);
       var a = link((st.P.MATERIAL_KINDS[m.kind] || m.kind) + ": " + m.title, href);
       if (href.indexOf(viewer) === 0) { // a web page cannot open the viewer itself: the service worker does
-        a.addEventListener("click", function (e) { e.preventDefault(); chrome.runtime.sendMessage({ type: "open-vault-pdf", path: m.path }); });
+        a.addEventListener("click", function (e) { e.preventDefault(); chrome.runtime.sendMessage({ type: "open-zotero-pdf", key: m.key }); });
       }
       matsEl.appendChild(a);
     });
@@ -337,7 +337,7 @@
       say("");
       await paint();
       render();
-      keepPdf(false);
+      keepPdf();
       return res;
     } catch (e) {
       console.warn("easy-read notes: " + op + " failed", e);
@@ -412,48 +412,44 @@
     } catch (e) { say(e.message); }
   }
 
-  /* ---------- the PDF in the vault ---------- */
-
-  var PDF_WHY = {
-    "no-vault": "PDF не сохранён: выбери папку vault в настройках easy-read.",
-    permission: "PDF не сохранён: подтвердить доступ к папке vault.",
-    "too-big": "PDF не сохранён: файл больше 95 МБ, GitHub не примет его в vault."
-  };
+  /* ---------- the paper's PDF in Zotero ---------- */
 
   function renderPdf(why) {
     pdfEl.textContent = "";
     var p = st.paper;
     if (!p) return;
-    if (p.pdf) { pdfEl.textContent = "PDF ✓ " + p.pdf; return; }
+    if (p.pdf) { pdfEl.textContent = "PDF ✓ в Zotero"; return; }
     if (viewerPdf) {
       if (!why) return;
-      pdfEl.appendChild(doc.createTextNode(PDF_WHY[why] || "PDF не сохранён: " + why));
-      if (why === "permission") pdfEl.appendChild(button("Подтвердить", "Разрешить запись в папку vault", function () { keepPdf(true); }));
-      if (why === "no-vault") pdfEl.appendChild(button("Настройки", "Открыть настройки easy-read", function () { chrome.runtime.sendMessage({ type: "open-options" }); }));
+      pdfEl.appendChild(doc.createTextNode("PDF не сохранён в Zotero: " + why));
+      pdfEl.appendChild(button("Повторить", "Загрузить открытый PDF в Zotero", function () { keepPdf(); }));
     } else if (st.pdfUrl) {
       pdfEl.appendChild(doc.createTextNode("PDF не сохранён."));
-      pdfEl.appendChild(button("Сохранить PDF", "Открыть PDF в easy-read и сохранить его в vault", function () {
+      pdfEl.appendChild(button("Сохранить PDF", "Открыть PDF в easy-read и сохранить его в Zotero", function () {
         chrome.runtime.sendMessage({ type: "open-pdf", url: st.pdfUrl, key: p.key });
       }));
     }
   }
 
-  /* in the viewer: once the paper is known, the open file goes to 0_media/papers/<slug>.pdf */
-  async function keepPdf(interactive) {
+  var keeping = null; // the key of the paper whose PDF is being uploaded now: one upload at a time
+
+  /* in the viewer: once the paper is known, the open file is stored in Zotero as the paper's PDF */
+  async function keepPdf() {
     var p = st.paper;
-    if (!viewerPdf || !p || p.pdf || !p.slug || docInfo().inVault) return; // (a material PDF of the vault is not the paper's PDF)
+    if (!viewerPdf || !p || p.pdf || keeping || docInfo().inZotero) return; // (a file read from Zotero is already there)
     var gen = st.gen, hash = docInfo().hash; // the file that is open now; its bytes are taken in this same tick
+    keeping = p.key;
     try {
-      var res = await viewerPdf.save(p.slug, interactive);
+      var res = await viewerPdf.save(p.key, p.slug);
+      await send("pdfSaved", { key: p.key, hash: hash });
       if (gen !== st.gen) return;
-      if (res.reason) { renderPdf(res.reason); return; }
-      await send("pdfSaved", { key: p.key, path: res.path, hash: hash });
-      if (gen !== st.gen) return;
-      st.paper = Object.assign({}, p, { pdf: res.path });
+      st.paper = Object.assign({}, st.paper, { pdf: res.key });
       renderPdf();
     } catch (e) {
-      console.warn("easy-read notes: saving the PDF failed", e);
+      console.warn("easy-read notes: storing the PDF in Zotero failed", e);
       if (gen === st.gen) renderPdf(e.message);
+    } finally {
+      keeping = null;
     }
   }
 
@@ -569,7 +565,7 @@
   }
   function close() { if (!notesPage) panel.hidden = true; }
 
-  /* quietly on load: highlights of earlier notes, and (viewer) the PDF into the vault */
+  /* quietly on load: highlights of earlier notes, and (viewer) the PDF into Zotero */
   async function refresh() {
     var gen = st.gen;
     try {
@@ -579,7 +575,7 @@
       st.paper = res.paper; st.notes = res.notes; st.pdfUrl = res.pdfUrl; st.materials = res.materials || [];
       await paint();
       if (!panel.hidden) render();
-      keepPdf(false);
+      keepPdf();
     } catch (e) {
       console.debug("easy-read notes: no Zotero state for this page", e);
     }

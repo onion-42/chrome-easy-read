@@ -76,7 +76,7 @@ easy-read on for that tab only. Shortcuts can be changed at `chrome://extensions
 
 ## Notes, Zotero and the reading list
 
-One paper is one Zotero item. easy-read saves papers and notes to Zotero; the Obsidian vault gets them through
+One paper is one Zotero item. easy-read saves papers, notes, PDFs and material files to Zotero; the Obsidian vault gets the notes through
 the plan-browser extension (or `node ~/.claude/skills/zotero-link/cli.mjs sync`). A note that easy-read has just
 made is also written to the vault at once (`1_education/papers/notes/<slug>--<KEY>.md`, plus its link in the
 paper's note), when the vault folder is chosen, its access is confirmed and the paper already has its note
@@ -98,15 +98,20 @@ folder of the vault (the one that holds `.obsidian`; a subfolder is refused).
 | Summary of the whole paper | «Вывод по статье»: one per paper, first in the list (Zotero tag `summary`) |
 | See earlier notes | quotes are highlighted in the text; click a highlight to open its note |
 | Reading list | **Alt+Shift+L**, or the link in the viewer / options |
-| Keep the PDF | in the PDF viewer the file is written to `0_media/papers/<slug>.pdf` of the vault once the paper is known; on an article page press «Сохранить PDF» |
-| Materials of a paper (supplementary PDFs, answers to reviewers, transcripts and video notes as `.md`, Word and Excel files (`.docx`, `.xlsx`), Google Docs and Sheets, videos, X threads, Google Slides, any link) | reading list → «Материалы…» at the paper: «Добавить файлы…» (several at once; or drop files on the row) and «Добавить ссылку». The links to all materials are always visible under the paper, and in the notes panel of the open paper (block «Материалы»). A file that already lies in the vault is linked where it is; another PDF is copied to `0_media/papers/<slug>--<name>.pdf`, another `.md` to `1_education/papers/materials/<slug>--<name>.md`. A material PDF opens in the viewer, and notes taken in it go to the same paper. «Убрать» sends the Zotero record to the trash; the file stays. From a terminal: `cli.mjs attach <slug> <address or file in the vault>` |
+| Keep the PDF | in the PDF viewer the open file is uploaded to Zotero as the paper's PDF (a stored attachment named `<slug>.pdf`) once the paper is known; on an article page press «Сохранить PDF». The vault folder is not needed. «Читать» in the reading list opens that file from Zotero in the viewer (`viewer.html?zotero=<attachment key>`). A PDF added in Zotero itself (drag and drop, the browser connector) counts the same way |
+| Materials of a paper (supplementary PDFs, answers to reviewers, transcripts and video notes as `.md`, Word and Excel files (`.docx`, `.xlsx`), Google Docs and Sheets, videos, X threads, Google Slides, any link) | reading list → «Материалы…» at the paper: «Добавить файлы…» (several at once; or drop files on the row) and «Добавить ссылку». The links to all materials are always visible under the paper, and in the notes panel of the open paper (block «Материалы»). A PDF, Word or Excel file is uploaded to Zotero (a stored attachment under the paper, so it travels with the paper into a shared group library). A note (`.md`) stays in the vault: one that already lies there is linked where it is, another is copied to `1_education/papers/materials/<slug>--<name>.md`. A material PDF opens in the viewer, and notes taken in it go to the same paper. «Убрать» sends the Zotero record to the trash, together with a file stored in Zotero; a note of the vault stays. From a terminal: `cli.mjs attach <slug> <address or file…>` |
 | Remove a paper from the reading list | reading list → «Удалить из списка…»: the paper leaves the collection; the Zotero item, the notes and the PDF stay. Its reading task (the inbox line or plan row that starts with «Статья» and links the paper) is closed by the next plan-browser sync |
-| Your own PDF (e.g. from the author) | reading list → «Прикрепить PDF…» (or drop the file on the row); or open the file in the viewer → 📝 → «Привязать к статье…» |
+| Your own PDF (e.g. from the author) | reading list → «Прикрепить PDF…» (or drop the file on the row); or open the file in the viewer → 📝 → «Привязать к статье…». The file goes to Zotero; «Заменить PDF…» puts a new file into the same attachment after a question |
+| Shared project (Zotero group library) | nothing to set up: a group joins the reading list when it has a top-level collection named like the chosen one (`cli.mjs share` makes it). Its sub-collections are shown as `<collection> · <group>`; a new paper is always saved to the personal library |
 
-A material is a child of the paper in Zotero (a link attachment with the tags `paper-material` and
-`material-pdf | note | video | thread | slides | link`; a file of the vault is linked by an `obsidian://`
-address). The sync adds one line per material to the section `## Материалы` of the paper's note. Dropping one
-PDF on a paper that has no PDF yet makes it the paper's own PDF; every other drop adds materials.
+A material is any attachment under the paper in Zotero except the paper's own PDF (the oldest stored PDF without
+the tag `paper-material`) and the web-page snapshot of the Zotero connector. easy-read and the CLI tag theirs with
+`paper-material` and `material-pdf | note | doc | sheet | video | thread | slides | link | file`; an attachment
+added by hand in Zotero has no tags and is a material too. A stored file opens from Zotero; a note of the vault is
+linked by an `obsidian://` address. The sync adds one line per material to the section `## Материалы` of the
+paper's note. Dropping one PDF on a paper that has no PDF yet makes it the paper's own PDF; every other drop adds
+materials. Files count against the Zotero storage quota (300 MB on the free plan): when it is full, the upload
+fails with a message that says so and nothing is half-saved.
 
 Works on PDFs (viewer) and on HTML article pages. A page is recognised by `citation_doi` / `citation_pmid`
 meta tags, a DOI in the address, or a PubMed address; a PDF by its content hash, a DOI on its first page, or its
@@ -197,7 +202,7 @@ vendor/pdfjs/   PDF.js 6.4.299 (Apache-2.0), copied by `npm run vendor`
 - Notes: a quote taken in the HTML version may not be highlighted in the PDF version of the same paper (and the
   reverse), and not after a clean-up: the text differs. The note itself is always in the list.
 - Notes with images, tables or Zotero's own highlights cannot be edited here.
-- A PDF of 95 MB or more is not written to the vault (GitHub rejects files of 100 MB).
+- PDFs and other files are stored in Zotero and count against its storage quota (300 MB on the free plan). A PDF that was kept in the vault by an older version is moved with `cli.mjs pdf <paper> <file.pdf>` (skill `zotero-link`).
 - After a Chrome restart the vault folder needs one click to confirm access; notes are saved to Zotero regardless.
 - Deleting a note is done in Zotero.
 

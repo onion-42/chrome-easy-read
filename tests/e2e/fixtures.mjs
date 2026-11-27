@@ -46,6 +46,21 @@ export const test = base.extend({
 
   sw: async ({ context }, use) => {
     const sw = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
+    // The viewer and the reading list move files to and from Zotero themselves. Their requests are answered by the
+    // service worker's fetch, where notes.spec.mjs installs its in-memory Zotero: one Zotero for the whole extension.
+    await context.route("https://api.zotero.org/**", async (route) => {
+      const req = route.request();
+      const sent = req.postDataBuffer();
+      const out = await sw.evaluate(async ({ url, method, headers, body }) => {
+        const bytes = body === null ? undefined : Uint8Array.from(atob(body), (c) => c.charCodeAt(0));
+        const isForm = (headers["content-type"] || "").includes("x-www-form-urlencoded") || (headers["content-type"] || "").includes("json");
+        const res = await self.fetch(url, { method, headers, body: bytes && (isForm ? new TextDecoder().decode(bytes) : new Blob([bytes])) });
+        let binary = "";
+        for (const b of new Uint8Array(await res.arrayBuffer())) binary += String.fromCharCode(b);
+        return { status: res.status, headers: Object.fromEntries(res.headers), body: btoa(binary) };
+      }, { url: req.url(), method: req.method(), headers: req.headers(), body: sent ? sent.toString("base64") : null });
+      await route.fulfill({ status: out.status, headers: out.headers, body: Buffer.from(out.body, "base64") });
+    });
     await use(sw);
   },
 });

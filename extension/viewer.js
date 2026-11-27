@@ -1,12 +1,14 @@
 // easy-read PDF viewer: the PDF's text as calm HTML (easy-read + reading aloud), the real pages with selectable
-// text ("PDF" button; notes work in both views), and an optional clean-up (DeepSeek for the text, Gemini for scans). Opened as viewer.html?file=<url>, or with "Open a PDF…" / drag and drop.
+// text ("PDF" button; notes work in both views), and an optional clean-up (DeepSeek for the text, Gemini for scans).
+// Opened as viewer.html?file=<url>, as viewer.html?zotero=<attachment key> (a PDF stored in Zotero), or with
+// "Open a PDF…" / drag and drop.
 import * as pdfjs from "./vendor/pdfjs/build/pdf.min.mjs";
 import { pageToItems, reflow, drawScale } from "./pdf-text.js";
 import { cleanPdf, cleanText, blocksToText, markdownToBlocks } from "./pdf-clean.js";
 import { loadReaderOptions } from "./reader-options.js";
 import { siteKey, matchesDomain, parseDomains } from "./site.js";
 import { prepareHost, loadPageScripts } from "./host.js";
-import { getVault, permission, keepPdf, openPdf as openVaultPdf } from "./vault-pdf.js";
+import { zoteroFiles } from "./zotero.js";
 
 const { TextLayer } = pdfjs;
 
@@ -35,7 +37,8 @@ const article = $("text");
 const cleanBtn = $("clean");
 const pagesEl = $("pages");
 const viewBtn = $("view");
-// task: the pdf.js loading task (it owns the document); source: { url, name }; hash: SHA-256 of the bytes
+// task: the pdf.js loading task (it owns the document); hash: SHA-256 of the bytes
+// source: { url, name, zotero: key of the Zotero attachment it was read from, paper: key of its paper }
 // view: "text" | "pdf"; built: the pages of this document exist in #pages; seen: their IntersectionObserver
 const state = { task: null, doc: null, bytes: null, hash: null, source: null, local: [], showing: "local",
   view: "text", built: false, seen: null };
@@ -46,7 +49,7 @@ window.easyReadViewer = {
   readScan: (bytes, apiKey) => cleanPdf(bytes, apiKey),  // Gemini: the PDF file itself
 };
 
-// for notes.js: what is open (so Zotero can recognise the paper), and "keep this file in the vault"
+// for notes.js: what is open (so Zotero can recognise the paper), and "store this file in Zotero as the paper's PDF"
 window.__erDoc = () => ({
   url: state.source?.url || "",
   title: state.source?.name || "",
@@ -54,9 +57,14 @@ window.__erDoc = () => ({
   text: state.local.map((b) => b.text || "").join("\n").slice(0, ID_TEXT),
   meta: {},
   isPdf: true,
-  inVault: Boolean(state.source?.vault), // opened from the vault: there is nothing to save
+  inZotero: Boolean(state.source?.zotero), // read from Zotero: there is nothing to upload
 });
-window.__erPdf = { save: (slug, interactive) => keepPdf(slug, state.bytes, { interactive }) };
+window.__erPdf = {
+  save(paperKey, slug) {
+    const bytes = state.bytes; // taken now: another PDF may be opened in this tab while the upload is prepared
+    return zoteroFiles().then((files) => files.putPdf(paperKey, bytes, `${slug || "paper"}.pdf`));
+  },
+};
 // for notes.js: in PDF view a quote is searched and highlighted in the text layers of the pages
 window.__erView = {
   mode: () => state.view,
@@ -370,35 +378,25 @@ async function openUrl(url) {
   await openPdf(new Uint8Array(await res.arrayBuffer()), { url, name });
 }
 
-/* a PDF kept in the vault (0_media/papers/…), opened from the reading list */
-async function openFromVault(path) {
+/* a PDF stored in Zotero (the paper's own, or a material), opened from the reading list or the notes panel */
+async function openFromZotero(attKey) {
   setState("loading");
-  const dir = await getVault();
-  if (!dir) {
-    status("Папка vault не выбрана. Выбери её в настройках easy-read.");
+  status("Downloading the PDF from Zotero…");
+  let file;
+  try {
+    file = await (await zoteroFiles()).get(attKey);
+  } catch (e) {
+    console.error("easy-read viewer: reading the PDF from Zotero failed", e);
+    status(`The PDF could not be read from Zotero: ${e.message}`);
     setState("error");
     return;
   }
-  if ((await permission(dir)) !== "granted") {
-    status("Нужен доступ к папке vault: нажми в любом месте страницы.");
-    setState("error");
-    document.addEventListener("click", async () => {
-      if ((await permission(dir, true)) === "granted") await openFromVault(path);
-    }, { once: true });
-    return;
-  }
-  const file = await openVaultPdf(dir, path);
-  if (!file) {
-    status(`В vault нет файла ${path}.`);
-    setState("error");
-    return;
-  }
-  await openPdf(new Uint8Array(await file.arrayBuffer()), { url: null, name: file.name, vault: path });
+  await openPdf(new Uint8Array(file.bytes), { url: null, name: file.name, zotero: attKey, paper: file.paper });
 }
 
 /* notes.js reloads its state for the new document; a PDF opened for a known paper is tied to it first */
 async function announceDoc() {
-  const key = new URLSearchParams(location.search).get("attach");
+  const key = new URLSearchParams(location.search).get("attach") || state.source?.paper;
   if (key) {
     const res = await chrome.runtime.sendMessage({ type: "zotero", op: "attach", key, doc: window.__erDoc() });
     if (!res?.ok) console.warn("easy-read viewer: could not tie the PDF to its paper", res?.message);
@@ -519,7 +517,7 @@ document.addEventListener("drop", (e) => {
 await loadEasyRead();
 const params = new URLSearchParams(location.search);
 if (params.get("file")) await openUrl(params.get("file"));
-else if (params.get("vault")) await openFromVault(params.get("vault"));
+else if (params.get("zotero")) await openFromZotero(params.get("zotero"));
 else {
   $("title").textContent = "Open a PDF";
   article.append(el("p", "Choose a PDF with “Open a PDF…” above, or drag one onto this page."));

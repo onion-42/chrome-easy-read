@@ -10,6 +10,7 @@ const SHARED = [
   [join(process.env.EASY_READ_SKILL || join(SKILLS, "easy-read"), "easy-read.js"), "easy-read.js"],
   [join(SKILLS, "zotero-link", "zotero-api.js"), "zotero-api.js"],
   [join(SKILLS, "zotero-link", "papers.js"), "papers.js"],
+  [join(SKILLS, "zotero-link", "md5.js"), "md5.js"],
 ];
 
 for (const [skillFile, copy] of SHARED) {
